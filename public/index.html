@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<link rel="icon" href="data:,">
+  <title>XENEON EDGE · Proxy Monitoring</title>
+<link rel="stylesheet" href="./style.css">
+</head>
+<body>
+<div class="app">
+  <header class="bar">
+    <div class="ident">
+        <h1>XENEON EDGE</h1>
+      <p class="ident-meta">
+        <span id="tracking">Tracking since -</span>
+        <span class="sep" aria-hidden="true">/</span>
+        <span id="updated">Waiting for the first reading</span>
+      </p>
+      <p class="gaps" id="gaps" hidden></p>
+    </div>
+    <div class="bar-side">
+      <p class="collector" id="collector" role="status" data-state="unknown">
+        <span class="pip" aria-hidden="true"></span>
+        <span id="collector-text">Connecting</span>
+      </p>
+      <div class="periods" role="group" aria-label="Token usage period">
+        <button type="button" data-period="today" aria-pressed="true">Today</button>
+        <button type="button" data-period="week" aria-pressed="false">Week</button>
+        <button type="button" data-period="month" aria-pressed="false">Month</button>
+      </div>
+    </div>
+  </header>
+
+  <p class="banner" id="banner" role="alert" hidden></p>
+  <p class="demo" id="demo" hidden>Simulated data: this preview is not from your proxy.</p>
+
+  <main class="board">
+    <section class="providers" id="providers" aria-label="Provider summaries"></section>
+    <section class="feed" aria-labelledby="feed-title">
+      <div class="feed-head">
+        <h2 id="feed-title">Live requests</h2>
+        <p class="feed-note">Completed, newest first</p>
+      </div>
+      <div class="feed-cols" aria-hidden="true">
+        <span>Time</span>
+        <span>Provider / model</span>
+        <span class="num">Tokens</span>
+        <span>Result</span>
+      </div>
+      <ol class="feed-list" id="feed-list"></ol>
+      <p class="feed-empty" id="feed-empty">No completed requests yet.</p>
+    </section>
+  </main>
+</div>
+<noscript><p class="banner">This display needs JavaScript to poll the dashboard API.</p></noscript>
+<script type="module" src="./app.js"></script>
+</body>
+</html>

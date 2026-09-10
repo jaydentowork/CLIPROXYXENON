@@ -1,0 +1,22 @@
+{
+  "description": "Synthetic examples derived from public field contracts; no live account data.",
+  "telemetry": {
+    "timestamp": "2026-09-10T18:30:00Z", "latency_ms": 1234,
+    "provider": "antigravity", "auth_index": "fixture-ag", "model": "claude-sonnet-4-6",
+    "request_id": "fixture-correlation", "failed": false,
+    "tokens": { "input_tokens": 1000, "output_tokens": 2000, "cached_tokens": 400, "reasoning_tokens": 600, "total_tokens": 3000 },
+    "api_key": "synthetic-api-key-must-be-discarded"
+  },
+  "codex": {
+    "rate_limit": {
+      "primary_window": { "used_percent": 20, "limit_window_seconds": 18000, "reset_at": 1789084800 },
+      "secondary_window": { "used_percent": 50, "limit_window_seconds": 604800, "reset_at": 1789344000 }
+    }
+  },
+  "claude": { "five_hour": { "utilization": 25, "resets_at": "2026-09-10T23:30:00Z" }, "seven_day": { "utilization": 50, "resets_at": "2026-09-14T00:00:00Z" } },
+  "antigravitySummary": { "groups": [ { "displayName": "Gemini", "buckets": [
+    { "bucketId": "gemini-5h", "window": "5h", "remainingFraction": 0.8, "resetTime": "2026-09-10T23:30:00Z" },
+    { "bucketId": "gemini-week", "window": "weekly", "remainingFraction": 0.6, "resetTime": "2026-09-14T00:00:00Z" }
+  ] } ] },
+  "antigravityModels": { "models": { "gemini-pro": { "quotaInfo": { "remainingFraction": 0.4, "resetTime": "2026-09-10T23:30:00Z" } } } }
+}

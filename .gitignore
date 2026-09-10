@@ -1,0 +1,15 @@
+.env
+.firecrawl/
+node_modules/
+data/
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*
+*.log
+coverage/
+.cache/
+artifacts/
+graft/
+.env.*
+!.env.example

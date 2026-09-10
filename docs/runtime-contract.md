@@ -1,0 +1,28 @@
+# Runtime contract
+
+Implementation coordination for this task; approved requirements remain in dashboard-brief.md.
+
+## Module boundaries
+
+- Configuration and HTTP: `src/config.js`, `src/server.js`, `src/demo.js`.
+- Durable usage history and subscription: `src/storage.js`, `src/time.js`, `src/collector.js`.
+- Provider quota: `src/quota.js`.
+- Browser interface: `public/`; product and visual context: PRODUCT.md and DESIGN.md.
+
+Use Node >=24.2, ESM, built-in modules, no runtime dependencies. Provider IDs: `antigravity`, `claude`, `codex`.
+
+## Storage and collector
+
+`src/storage.js`: export `createStore({path, now = () => Date.now()})`, returning `ingest(raw)` (validate/sanitize/filter telemetry), `snapshot(period)` returning `{trackingSince, totals, recent, gaps}`, `recordGap({startedAt, endedAt, reason})`, `cleanup()`, `close()`. `totals` is an object keyed by provider, each `{requests, tokens, inputTokens, outputTokens, cachedTokens, reasoningTokens}`. Recent is newest first, at most 30, each `{id, timestamp, provider, account, model, requestId, outcome, durationMs, tokens}`; IDs are local unique IDs. Gaps use ISO timestamps. Source request IDs are correlation only, never unique. `src/collector.js`: export `startCollector({url, password, store, onStatus})` returning `{stop()}`. Status is `{state, since, lastEventAt, message}`; states collecting/disconnected/error/unconfigured. RESP URL is separate from HTTP URL. Use only AUTH and SUBSCRIBE usage; no destructive reads or generic Redis handshake. Sanitize all errors.
+
+## Quota
+
+`src/quota.js`: export `createQuotaService({baseUrl, managementKey, codexWeights, intervalMs = 5000, fetchImpl = fetch, now = () => Date.now()})`, returning `{start(), stop(), snapshot()}`. Snapshot is an object keyed by provider with `{accounts, exhausted, observedAccounts, windows, message}`. A window is `{id, label, model, remainingPercent, observedAccounts, totalAccounts, stale, observedAt, nextResetAt, latestResetAt, message}`. Unknown remainingPercent is null. All times ISO or null. Never-observed excluded; stale retained. Codex weights keyed by stable identifier, never order. Expose missing mapping as Unknown and actionable message. Antigravity quota Gemini only; preserve actual windows and clearly report unavailable requested windows. No secrets or arbitrary account payloads in snapshot. Pollers only backend, no overlap, respect Retry-After, stop automatic authentication retries on 401/403. Public helpers and additional focused files/tests within assigned area are allowed.
+
+## HTTP and browser
+
+The HTTP server combines local usage history, the shared quota cache, and collector state.
+
+`GET /api/dashboard?period=today|week|month`: `{generatedAt, period, timezone:'America/Chicago', trackingSince, totals, recent, gaps, quota, collector, demo}`. `GET /healthz`: sanitized service health. Browser polls every five seconds, guards period races, uses textContent for external text. Frontend owns `public/`, PRODUCT.md and DESIGN.md. Demo data must carry `demo:true` and visible simulated-data label. Default live mode never seeds history or quota.
+
+All writers preserve existing files and .env, use rtk commands, fff search, graft once available. Owned source/tests must be checked with node --test. No live credential use by subagents: primary owns bounded live probes. No publishing, deployment, or nested agents.
