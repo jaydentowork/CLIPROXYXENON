@@ -76,6 +76,7 @@ function service(options) {
     baseUrl: 'https://proxy.example.com/v0/management',
     managementKey: 'management-key',
     now: () => CLOCK,
+    spacingMs: 0,
     ...options,
   });
 }
@@ -172,7 +173,7 @@ test('keeps the last successful reading when a refresh fails', async () => {
   assert.equal(after.remainingPercent, 80);
   assert.equal(after.stale, true);
   assert.equal(after.observedAt, before.observedAt);
-  assert.match(after.message, /stale/i);
+  assert.match(after.message, /HTTP 500/);
   assert.equal(quota.snapshot().codex.message, '2 of 2 accounts failed to refresh.');
 });
 
@@ -254,18 +255,55 @@ test('preserves Gemini model windows without inventing five-hour or weekly capac
   const quota = service({ fetchImpl: stub.fetchImpl });
   await quota.refresh();
   const windows = quota.snapshot().antigravity.windows;
-  assert.equal(windows.find(w => w.id === 'gemini-five-hour').remainingPercent, null);
-  assert.equal(windows.find(w => w.id === 'gemini-weekly').remainingPercent, null);
+  assert.deepEqual(windows.map(w => w.id), ['model:gemini-pro', 'model:gemini-flash']);
   assert.equal(windows.find(w => w.id === 'model:gemini-pro').remainingPercent, 20);
   assert.equal(windows.find(w => w.id === 'model:gemini-flash').remainingPercent, 90);
   assert.equal(windows.some(w => /claude/.test(w.model)), false);
 });
 
-test('different Codex durations and model scopes are never averaged together', async () => {
+test('reported Gemini and Codex windows replace empty placeholders and survive throttling', async () => {
+  let throttled = false;
+  const stub = managementStub({
+    files: [{ provider: 'antigravity', auth_index: 'ag', project_id: 'p' }, ...codexFiles],
+    quotaFor: body => {
+      if (throttled) return apiCallEnvelope({}, 429);
+      if (body.auth_index === 'ag') {
+        const payload = antigravityPayload();
+        payload.groups[0].displayName = 'Gemini Models';
+        return apiCallEnvelope(payload);
+      }
+      const payload = codexPayload(12.6);
+      payload.rate_limit.primary_window.limit_window_seconds = 604800;
+      return apiCallEnvelope(payload);
+    },
+  });
+  const quota = service({ fetchImpl: stub.fetchImpl, codexWeights: { 'codex-5': 5, 'codex-20': 20 } });
+  await quota.refresh();
+  const snapshot = quota.snapshot();
+  assert.deepEqual(snapshot.antigravity.windows.map(w => w.id), [
+    'gemini models:5-hour:gemini-5h', 'gemini models:Weekly:gemini-weekly',
+  ]);
+  assert.deepEqual(snapshot.codex.windows.map(w => w.id), ['primary-604800s']);
+  assert.equal(snapshot.codex.windows[0].remainingPercent, 87.4);
+  assert.equal(snapshot.codex.windows[0].observedAccounts, 2);
+
+  throttled = true;
+  await quota.refresh();
+  for (const provider of ['antigravity', 'codex']) {
+    const windows = quota.snapshot()[provider].windows;
+    assert.deepEqual(windows.map(w => w.id), snapshot[provider].windows.map(w => w.id));
+    assert.equal(windows.every(w => w.stale && w.remainingPercent !== null), true);
+  }
+});
+
+test('different Codex durations and model scopes stay separate and Spark is hidden', async () => {
   const stub = managementStub({ files: codexFiles, quotaFor: body => {
     const payload = codexPayload(body.auth_index === 'codex-5' ? 20 : 80);
     if (body.auth_index === 'codex-20') payload.rate_limit.primary_window.limit_window_seconds = 86400;
-    payload.additional_rate_limits = [{ limit_name: 'special-model', rate_limit: codexPayload(50).rate_limit }];
+    payload.additional_rate_limits = [
+      { limit_name: 'special-model', rate_limit: codexPayload(50).rate_limit },
+      { limit_name: 'Spark', rate_limit: codexPayload(0).rate_limit },
+    ];
     return apiCallEnvelope(payload);
   } });
   const quota = service({ fetchImpl: stub.fetchImpl, codexWeights: { 'codex-5': 5, 'codex-20': 20 } });
@@ -274,6 +312,7 @@ test('different Codex durations and model scopes are never averaged together', a
   assert.equal(windows.find(w => w.id === 'primary').remainingPercent, 80);
   assert.equal(windows.find(w => w.id === 'primary-86400s').remainingPercent, 20);
   assert.equal(windows.find(w => w.id === 'special-model:primary').remainingPercent, 50);
+  assert.equal(windows.some(w => /spark/i.test(w.model)), false);
 });
 
 test('omitted readings stay stale and timestamps use the oldest included reading', async () => {
@@ -292,17 +331,52 @@ test('omitted readings stay stale and timestamps use the oldest included reading
   assert.equal(window.observedAt, new Date(CLOCK).toISOString());
 });
 
-test('throttling stops the current cycle and network error details stay private', async () => {
+test('throttling stops the throttled provider and network error details stay private', async () => {
   const stub = managementStub({ files: codexFiles,
     quotaFor: () => apiCallEnvelope({}, 429, { 'Retry-After': ['60'] }) });
   const quota = service({ fetchImpl: stub.fetchImpl, codexWeights: { 'codex-5': 5, 'codex-20': 20 } });
   await quota.refresh();
   await quota.refresh();
+  // One 429 pauses the remaining Codex accounts and the next Codex cycle, but
+  // account discovery still runs for the providers that were not throttled.
   assert.equal(stub.calls.apiCall, 1);
-  assert.equal(stub.calls.discovery, 1);
+  assert.equal(stub.calls.discovery, 2);
   const privateQuota = service({ fetchImpl: async () => { throw new Error('api_key=synthetic-sensitive-value'); } });
   await privateQuota.refresh();
   assert.equal(JSON.stringify(privateQuota.snapshot()).includes('synthetic-sensitive-value'), false);
+});
+
+test('one provider being throttled does not pause the others', async () => {
+  const files = [
+    { provider: 'claude', auth_index: 'claude-1', name: 'claude.json' },
+    ...codexFiles,
+  ];
+  const stub = managementStub({ files, quotaFor: (body) => body.auth_index === 'claude-1'
+    ? apiCallEnvelope({}, 429, { 'Retry-After': ['60'] })
+    : apiCallEnvelope(codexPayload(20)) });
+  const quota = service({ fetchImpl: stub.fetchImpl, codexWeights: { 'codex-5': 5, 'codex-20': 20 } });
+
+  await quota.refresh();
+  const snapshot = quota.snapshot();
+  const primary = snapshot.codex.windows.find((window) => window.id === 'primary');
+  assert.equal(primary.remainingPercent, 80);
+  assert.equal(primary.observedAccounts, 2);
+  assert.equal(primary.stale, false);
+  assert.equal(snapshot.claude.message, '1 of 1 accounts failed to refresh.');
+});
+
+test('upstream account calls are spaced instead of sent as one burst', async () => {
+  const stamps = [];
+  const stub = managementStub({ files: codexFiles, quotaFor: () => {
+    stamps.push(Date.now());
+    return apiCallEnvelope(codexPayload(20));
+  } });
+  const quota = service({ fetchImpl: stub.fetchImpl, now: () => Date.now(), spacingMs: 40,
+    codexWeights: { 'codex-5': 5, 'codex-20': 20 } });
+
+  await quota.refresh();
+  assert.equal(stamps.length, 2);
+  assert.equal(stamps[1] - stamps[0] >= 35, true);
 });
 
 test('refreshes share one request and reject out-of-range quota', async () => {

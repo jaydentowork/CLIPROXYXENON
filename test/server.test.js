@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { readConfig, managementBase } from '../src/config.js';
 import { startApp } from '../src/server.js';
 
@@ -13,11 +14,28 @@ test('management URLs append the path once and reject credentials and query secr
 
 test('config validates weights and RESP and demo isolates credentials and persistent history', () => {
   const config = readConfig({ MANAGEMENT_KEY: 'secret', CLIPROXYAPI_BASE_URL: 'invalid', DATA_PATH: 'live.sqlite' }, ['--demo']);
-  assert.deepEqual(config, { demo: true, host: '127.0.0.1', port: 8787 });
+  assert.deepEqual(config, { demo: true, host: '127.0.0.1', port: 8787, apiKeyAliases: [] });
+  assert.deepEqual(readConfig({ API_KEY_ALIASES: '{"sk-live-1":"Desk"}' }, []).apiKeyAliases, [{ key: 'sk-live-1', alias: 'Desk' }]);
+  assert.throws(() => readConfig({ API_KEY_ALIASES: '["sk"]' }, []));
+  assert.throws(() => readConfig({ API_KEY_ALIASES: '{"sk-a":"Same","sk-b":"Same"}' }, []));
   assert.throws(() => readConfig({ CODEX_ACCOUNT_WEIGHTS: '{"id":1}' }, []));
   assert.throws(() => readConfig({ CLIPROXYAPI_RESP_URL: 'https://proxy.example.com' }, []));
   assert.throws(() => readConfig({ CLIPROXYAPI_RESP_URL: 'redis://secret@example.com' }, []));
   assert.throws(() => readConfig({ PORT: '-1' }, []));
+});
+
+test('CLI explains when another server already owns the port', async t => {
+  const app = await startApp({ demo: true, host: '127.0.0.1', port: 0 });
+  t.after(() => app.close());
+  const port = app.server.address().port;
+  const result = spawnSync(process.execPath, ['src/server.js', '--demo'], {
+    cwd: new URL('..', import.meta.url),
+    env: { ...process.env, HOST: '127.0.0.1', PORT: String(port) },
+    encoding: 'utf8',
+    timeout: 10000,
+  });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, new RegExp(`port ${port} is already in use`));
 });
 
 test('HTTP demo provides period totals with current feed and read-only safe routes', async t => {

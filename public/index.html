@@ -5,21 +5,26 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark">
 <link rel="icon" href="data:,">
-  <title>XENEON EDGE · Proxy Monitoring</title>
+  <title>CLIPROXYAPI MONITOR</title>
 <link rel="stylesheet" href="./style.css">
 </head>
 <body>
 <div class="app">
   <header class="bar">
     <div class="ident">
-        <h1>XENEON EDGE</h1>
-      <p class="ident-meta">
-        <span id="tracking">Tracking since -</span>
-        <span class="sep" aria-hidden="true">/</span>
-        <span id="updated">Waiting for the first reading</span>
-      </p>
-      <p class="gaps" id="gaps" hidden></p>
-    </div>
+      <span class="mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+      </span>
+      <div class="ident-text">
+        <h1>CLIPROXYAPI MONITOR</h1>
+        <p class="ident-meta">
+          <span id="updated">Waiting for the first reading</span>
+          <span class="sep" aria-hidden="true"></span>
+          <span id="tracking">Tracking since -</span>
+        </p>
+        <p class="gaps" id="gaps" hidden></p>
+      </div>
+        </div>
     <div class="bar-side">
       <p class="collector" id="collector" role="status" data-state="unknown">
         <span class="pip" aria-hidden="true"></span>
@@ -30,8 +35,39 @@
         <button type="button" data-period="week" aria-pressed="false">Week</button>
         <button type="button" data-period="month" aria-pressed="false">Month</button>
       </div>
+      <div class="tools">
+        <button type="button" class="tool" id="settings-button" aria-label="Settings" title="Settings" aria-haspopup="dialog" aria-expanded="false">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+        </button>
+        <button type="button" class="tool" id="fullscreen-button" aria-label="Enter full screen" title="Enter full screen" aria-pressed="false">
+          <svg class="icon-enter" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
+          <svg class="icon-exit" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/><path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/></svg>
+        </button>
+      </div>
     </div>
   </header>
+
+  <dialog class="settings" id="settings" aria-labelledby="settings-title">
+    <form method="dialog" class="settings-form">
+      <div class="settings-head">
+        <h2 id="settings-title">Settings</h2>
+        <button type="submit" class="tool" aria-label="Close settings" title="Close">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+        </button>
+      </div>
+      <fieldset class="settings-group">
+        <legend>Usage filter</legend>
+        <label class="key-label" for="api-key">Your API key</label>
+        <input class="key-input" id="api-key" type="password" autocomplete="off" spellcheck="false" placeholder="Paste your API key" aria-describedby="key-note key-status">
+        <p class="settings-note" id="key-note">Saved in this browser. Only a hash is sent to filter requests, tokens, and estimated cost. Provider quotas stay shared.</p>
+        <div class="key-actions">
+          <button class="key-apply" id="apply-key" type="button">Apply filter</button>
+          <button id="clear-key" type="button">Clear filter · show all</button>
+        </div>
+        <p class="settings-note" id="key-status" role="status" aria-live="polite"></p>
+      </fieldset>
+    </form>
+  </dialog>
 
   <p class="banner" id="banner" role="alert" hidden></p>
   <p class="demo" id="demo" hidden>Simulated data: this preview is not from your proxy.</p>
@@ -40,13 +76,16 @@
     <section class="providers" id="providers" aria-label="Provider summaries"></section>
     <section class="feed" aria-labelledby="feed-title">
       <div class="feed-head">
-        <h2 id="feed-title">Live requests</h2>
+        <h2 id="feed-title">Live requests <span class="feed-filter" id="feed-filter" hidden>Your API key</span></h2>
         <p class="feed-note">Completed, newest first</p>
       </div>
       <div class="feed-cols" aria-hidden="true">
         <span>Time</span>
         <span>Provider / model</span>
-        <span class="num">Tokens</span>
+        <span class="num">In</span>
+        <span class="num">Out</span>
+        <span class="num">Cached</span>
+        <span class="num">Cost</span>
         <span>Result</span>
       </div>
       <ol class="feed-list" id="feed-list"></ol>

@@ -9,7 +9,7 @@ The collector consumes broadcast `message` frames on channel `usage`, parsing ea
 | Source | Stored meaning |
 | --- | --- |
 | `timestamp` (RFC3339 with timezone or epoch milliseconds) | UTC instant |
-| `provider` | Only `antigravity`, `claude`, `codex`, case normalized |
+| `provider` | Only `antigravity`, `claude`, `codex`, `opencode`, `mimo`, case normalized |
 | `auth_index` | Account reference for correlation |
 | `model`, fallback `alias` | Model label |
 | `request_id` | Correlation identifier, deliberately not unique |
@@ -17,8 +17,9 @@ The collector consumes broadcast `message` frames on channel `usage`, parsing ea
 | `latency_ms` | Duration when supplied |
 | `tokens.total_tokens` | Actual total, never reconstructed by summing overlapping categories |
 | `tokens.input_tokens`, `output_tokens`, `cached_tokens`, `reasoning_tokens` | Available category counts, stored separately |
+| `api_key` | Reduced to a 16-character SHA-256 caller id before storage; the key itself is discarded. Aliases from `API_KEY_ALIASES` map ids back to labels for the browser. |
 
-Unused raw fields—including `api_key`, source/email, endpoint, authentication metadata, and response headers—are discarded before persistence. The app does not log raw telemetry. Missing token values stay null in feed records. Provider totals sum the reported values; cached/reasoning categories are never added again to the source total. Two attempts with the same request ID remain separate records. xAI is excluded from storage, totals, and feed. Antigravity Claude-model requests remain included.
+Unused raw fields—including source/email, endpoint, authentication metadata, and response headers—are discarded before persistence. The app does not log raw telemetry. Missing token values stay null in feed records. Provider totals sum the reported values; cached/reasoning categories are never added again to the source total. Two attempts with the same request ID remain separate records. xAI is excluded from storage, totals, and feed. Antigravity Claude-model requests remain included.
 
 SQLite uses a persistent tracking-start record, timestamp indexes, WAL for disk-backed databases, a bounded newest-first feed (30 rows), and at most 50 recent gap records in responses. Startup and hourly cleanup remove records older than 60 × 24 hours; completed old gap records are cleaned up too. Browser Today/Week/Month reports use local midnight, Monday, or the first of the month in `America/Chicago`, independently of server timezone. Tests cover both 2026 US daylight-saving changes.
 

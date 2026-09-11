@@ -4,12 +4,14 @@
 // filtering, credential stripping, and field whitelisting all happen here,
 // before anything reaches SQLite or a browser response.
 
+import { estimateCost } from './pricing.js';
+import { createCallerDirectory } from './callers.js';
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { periodStartMs, REPORTING_TIME_ZONE } from './time.js';
 
-export const INCLUDED_PROVIDERS = ['antigravity', 'claude', 'codex'];
+export const INCLUDED_PROVIDERS = ['antigravity', 'claude', 'codex', 'opencode', 'mimo'];
 export const RECENT_LIMIT = 30;
 export const GAP_LIMIT = 50;
 export const RETENTION_DAYS = 60;
@@ -36,7 +38,8 @@ CREATE TABLE IF NOT EXISTS events (
   input_tokens INTEGER,
   output_tokens INTEGER,
   cached_tokens INTEGER,
-  reasoning_tokens INTEGER
+  reasoning_tokens INTEGER,
+  caller TEXT
 );
 CREATE INDEX IF NOT EXISTS events_by_timestamp ON events (timestamp_ms DESC, id DESC);
 CREATE TABLE IF NOT EXISTS gaps (
@@ -83,7 +86,7 @@ export function normalizeProvider(value) {
 
 // Keeps only whitelisted, non-credential fields. Unknown providers, missing
 // timestamps, and malformed payloads return null so the caller can drop them.
-function normalizeEvent(raw) {
+function normalizeEvent(raw, callers) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const timestampMs = toEpochMs(raw.timestamp ?? raw.time ?? raw.timestamp_ms);
   if (timestampMs === null) return null;
@@ -111,6 +114,8 @@ function normalizeEvent(raw) {
     outputTokens: asCount(tokenPayload.output_tokens ?? tokenPayload.outputTokens),
     cachedTokens: asCount(tokenPayload.cached_tokens ?? tokenPayload.cachedTokens),
     reasoningTokens: asCount(tokenPayload.reasoning_tokens ?? tokenPayload.reasoningTokens),
+    // The raw key is reduced to an opaque caller id here and never kept.
+    caller: callers.resolve(raw.api_key ?? raw.apiKey),
   };
 }
 
@@ -124,18 +129,27 @@ function emptyTotals() {
       outputTokens: 0,
       cachedTokens: 0,
       reasoningTokens: 0,
+      costUsd: null,
     };
   }
   return totals;
 }
 
-export function createStore({ path, now = () => Date.now() } = {}) {
+export function createStore({ path, now = () => Date.now(), apiKeyAliases = [] } = {}) {
+  const callers = createCallerDirectory(apiKeyAliases);
   const databasePath = path || ':memory:';
   if (databasePath !== ':memory:') {
     mkdirSync(dirname(databasePath), { recursive: true });
   }
   const db = new DatabaseSync(databasePath);
   db.exec(SCHEMA);
+  // Remove the retired startup notice from databases created by older builds.
+  db.prepare("DELETE FROM gaps WHERE reason = 'service restarted; collection may be incomplete'").run();
+  // Databases created before the caller column existed gain it in place.
+  if (!db.prepare('PRAGMA table_info(events)').all().some(column => column.name === 'caller')) {
+    db.exec('ALTER TABLE events ADD COLUMN caller TEXT');
+  }
+  db.exec('CREATE INDEX IF NOT EXISTS events_by_caller ON events (caller, timestamp_ms DESC, id DESC)');
   if (databasePath !== ':memory:') {
     db.exec('PRAGMA journal_mode = WAL');
     db.exec('PRAGMA synchronous = NORMAL');
@@ -146,8 +160,8 @@ export function createStore({ path, now = () => Date.now() } = {}) {
   const insertEvent = db.prepare(`
     INSERT INTO events (
       timestamp_ms, provider, account, model, request_id, outcome, duration_ms,
-      tokens, input_tokens, output_tokens, cached_tokens, reasoning_tokens
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      tokens, input_tokens, output_tokens, cached_tokens, reasoning_tokens, caller
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const insertGap = db.prepare('INSERT INTO gaps (started_at_ms, ended_at_ms, reason) VALUES (?, ?, ?)');
   const readOpenGap = db.prepare('SELECT id FROM gaps WHERE ended_at_ms IS NULL LIMIT 1');
@@ -162,12 +176,18 @@ export function createStore({ path, now = () => Date.now() } = {}) {
       COALESCE(SUM(cached_tokens), 0) AS cachedTokens,
       COALESCE(SUM(reasoning_tokens), 0) AS reasoningTokens
     FROM events
-    WHERE timestamp_ms >= ? AND timestamp_ms <= ?
+    WHERE timestamp_ms >= ? AND timestamp_ms <= ? AND (? IS NULL OR caller = ?)
     GROUP BY provider
   `);
+  const selectUsage = db.prepare(
+    'SELECT provider, model, input_tokens, output_tokens, cached_tokens FROM events '
+    + 'WHERE timestamp_ms >= ? AND timestamp_ms <= ? AND (? IS NULL OR caller = ?)'
+  );
   const selectRecent = db.prepare(`
-    SELECT id, timestamp_ms, provider, account, model, request_id, outcome, duration_ms, tokens
+    SELECT id, timestamp_ms, provider, account, model, request_id, outcome, duration_ms,
+      tokens, input_tokens, output_tokens, cached_tokens, caller
     FROM events
+    WHERE (? IS NULL OR caller = ?)
     ORDER BY timestamp_ms DESC, id DESC
     LIMIT ?
   `);
@@ -187,10 +207,6 @@ export function createStore({ path, now = () => Date.now() } = {}) {
   }
 
   let closed = false;
-  const priorAlive = toEpochMs(readMeta.get('last_alive_at')?.value);
-  if (priorAlive !== null && !readOpenGap.get()) {
-    insertGap.run(priorAlive, null, 'service restarted; collection may be incomplete');
-  }
   const heartbeat = () => writeHeartbeat.run(toIso(now()));
   heartbeat();
   let heartbeatFailed = false;
@@ -200,7 +216,7 @@ export function createStore({ path, now = () => Date.now() } = {}) {
   heartbeatTimer.unref();
 
   function ingest(raw) {
-    const record = normalizeEvent(raw);
+    const record = normalizeEvent(raw, callers);
     if (!record) return null;
     const info = insertEvent.run(
       record.timestampMs,
@@ -215,6 +231,7 @@ export function createStore({ path, now = () => Date.now() } = {}) {
       record.outputTokens,
       record.cachedTokens,
       record.reasoningTokens,
+      record.caller,
     );
     return {
       id: Number(info.lastInsertRowid),
@@ -229,12 +246,16 @@ export function createStore({ path, now = () => Date.now() } = {}) {
     };
   }
 
-  function snapshot(period = 'today') {
+  // `caller` is an opaque id from the alias directory, or null for no filter.
+  // An id that is not in the directory is treated as no filter, so a stale
+  // or guessed id can never widen what the browser sees.
+  function snapshot(period = 'today', caller = null) {
     if (heartbeatFailed) throw new Error('Persistent storage heartbeat failed.');
+    const filter = typeof caller === 'string' && caller ? caller : null;
     const nowMs = now();
     const startMs = periodStartMs(period, nowMs, REPORTING_TIME_ZONE);
     const totals = emptyTotals();
-    for (const row of selectTotals.all(startMs, nowMs)) {
+    for (const row of selectTotals.all(startMs, nowMs, filter, filter)) {
       if (!totals[row.provider]) continue;
       totals[row.provider] = {
         requests: Number(row.requests),
@@ -243,9 +264,18 @@ export function createStore({ path, now = () => Date.now() } = {}) {
         outputTokens: Number(row.outputTokens),
         cachedTokens: Number(row.cachedTokens),
         reasoningTokens: Number(row.reasoningTokens),
+        costUsd: null,
       };
     }
-    const recent = selectRecent.all(RECENT_LIMIT).map((row) => ({
+    // Apply context-length pricing to each request before summing.
+    for (const row of selectUsage.iterate(startMs, nowMs, filter, filter)) {
+      const totalsRow = totals[row.provider];
+      if (!totalsRow) continue;
+      const usd = estimateCost({ model: row.model, provider: row.provider, inputTokens: row.input_tokens,
+        outputTokens: row.output_tokens, cachedTokens: row.cached_tokens });
+      if (usd !== null) totalsRow.costUsd = (totalsRow.costUsd ?? 0) + usd;
+    }
+    const recent = selectRecent.all(filter, filter, RECENT_LIMIT).map((row) => ({
       id: Number(row.id),
       timestamp: toIso(Number(row.timestamp_ms)),
       provider: row.provider,
@@ -255,13 +285,18 @@ export function createStore({ path, now = () => Date.now() } = {}) {
       outcome: row.outcome,
       durationMs: row.duration_ms === null ? null : Number(row.duration_ms),
       tokens: row.tokens === null ? null : Number(row.tokens),
+      inputTokens: row.input_tokens === null ? null : Number(row.input_tokens),
+      outputTokens: row.output_tokens === null ? null : Number(row.output_tokens),
+      cachedTokens: row.cached_tokens === null ? null : Number(row.cached_tokens),
+      costUsd: estimateCost({ model: row.model, provider: row.provider, inputTokens: row.input_tokens, outputTokens: row.output_tokens, cachedTokens: row.cached_tokens }),
+      caller: callers.aliasFor(row.caller),
     }));
     const gaps = selectGaps.all(GAP_LIMIT).map((row) => ({
       startedAt: toIso(Number(row.started_at_ms)),
       endedAt: row.ended_at_ms === null ? null : toIso(Number(row.ended_at_ms)),
       reason: row.reason,
     }));
-    return { trackingSince: toIso(trackingSinceMs), totals, recent, gaps };
+    return { trackingSince: toIso(trackingSinceMs), totals, recent, gaps, callers: callers.list(), caller: filter };
   }
 
   function recordGap({ startedAt, endedAt = null, reason = 'unknown' } = {}) {

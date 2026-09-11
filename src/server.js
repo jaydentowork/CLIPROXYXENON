@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 import { readConfig } from './config.js';
 import { demoSnapshot } from './demo.js';
+import { loadPricingCatalog } from './pricing.js';
 
 const staticFiles = {
   '/': ['index.html', 'text/html; charset=utf-8'],
@@ -11,10 +12,14 @@ const staticFiles = {
   '/app.js': ['app.js', 'text/javascript; charset=utf-8'],
   '/style.css': ['style.css', 'text/css; charset=utf-8'],
 };
+// Dev-only allowance so impeccable live mode can load. Guarded by NODE_ENV.
+const liveDev = process.env.NODE_ENV === 'development';
+const liveSrc = liveDev ? ' http://localhost:8400' : '';
+const liveStyle = liveDev ? " 'unsafe-inline'" : '';
 const securityHeaders = {
   'X-Content-Type-Options': 'nosniff',
   'Referrer-Policy': 'no-referrer',
-  'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'self'",
+  'Content-Security-Policy': `default-src 'self'; script-src 'self'${liveSrc}; style-src 'self'${liveStyle}; connect-src 'self'${liveSrc}; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'self'`,
   'Cache-Control': 'no-store',
 };
 
@@ -26,7 +31,7 @@ export async function startApp(config = readConfig()) {
     const [{ createStore }, { createQuotaService }, { startCollector }] = await Promise.all([
       import('./storage.js'), import('./quota.js'), import('./collector.js'),
     ]);
-    store = createStore({ path: config.dataPath });
+    store = createStore({ path: config.dataPath, apiKeyAliases: config.apiKeyAliases });
     quotaService = createQuotaService({ baseUrl: config.baseUrl, managementKey: config.managementKey, codexWeights: config.codexWeights });
     if (config.respUrl) collector = startCollector({ url: config.respUrl, password: config.respPassword, store,
       onStatus: status => { collectorStatus = status; } });
@@ -48,9 +53,11 @@ export async function startApp(config = readConfig()) {
       if (url.pathname === '/api/dashboard') {
         const period = url.searchParams.get('period') || 'today';
         if (!['today', 'week', 'month'].includes(period)) return send(400, { error: 'period must be today, week, or month.' });
-        const data = config.demo ? demoSnapshot(period) : {
+        const caller = url.searchParams.get('caller');
+        if (caller !== null && !/^[A-Za-z0-9_-]{1,32}$/.test(caller)) return send(400, { error: 'caller must be a caller id from the dashboard payload.' });
+        const data = config.demo ? demoSnapshot(period, Date.now(), caller) : {
           generatedAt: new Date().toISOString(), period, timezone: 'America/Chicago',
-          ...store.snapshot(period), quota: quotaService.snapshot(), collector: collectorStatus, demo: false,
+          ...store.snapshot(period, caller), quota: quotaService.snapshot(), collector: collectorStatus, demo: false,
         };
         return send(200, data);
       }
@@ -86,6 +93,11 @@ export async function startApp(config = readConfig()) {
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
     const config = readConfig();
+    if (!config.demo) {
+      const models = await loadPricingCatalog();
+      console.log(models ? 'Loaded OpenRouter prices for ' + models + ' models.'
+        : 'OpenRouter pricing unavailable; using built-in fallback prices.');
+    }
     const app = await startApp(config);
     console.log(`XENEON EDGE ${config.demo ? 'simulated preview' : 'dashboard'} listening on port ${app.server.address().port}.`);
     let closing = false;
@@ -96,8 +108,10 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     };
     process.on('SIGINT', stop);
     process.on('SIGTERM', stop);
-  } catch {
-    console.error('Dashboard startup failed. Check configuration, port availability, and persistent storage permissions.');
+  } catch (error) {
+    console.error(error.code === 'EADDRINUSE'
+      ? `Dashboard startup failed: port ${error.port} is already in use. Stop the existing server before starting another instance.`
+      : 'Dashboard startup failed. Check configuration, port availability, and persistent storage permissions.');
     process.exitCode = 1;
   }
 }

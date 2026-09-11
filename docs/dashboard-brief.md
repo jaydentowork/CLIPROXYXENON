@@ -16,9 +16,9 @@
 - Antigravity quota bars show Gemini only, with separate five-hour and weekly windows; availability still needs verification from provider data. This restriction does not apply to Codex or the separate Claude provider.
 - Include all Antigravity request activity and token usage, including Claude-model requests routed through Antigravity. Gemini-only filtering applies to its quota bars, not activity or usage totals.
 - Usage counts are summed as recorded; quota capacity weights do not multiply actual usage counts.
-- Show an exhausted-account count beside each provider's weighted quota summary (for example, "1 of 2 accounts exhausted").
+- Do not show an exhausted-account count on the provider summary; a window at 0% already reads as empty.
 - Refresh dashboard data every 5 seconds. Feasibility of fetching fresh provider quota at that frequency remains to be checked against provider behavior and rate limits.
-- On a failed quota refresh, retain the last successful value with a visible stale label and timestamp. Show Unknown if no successful reading exists; missing data must not appear as zero or full quota.
+- On a failed quota refresh, retain the last successful value with the compact `stale` chip and timestamp, without an explanatory stale sentence. Show Unknown if no successful reading exists; missing data must not appear as zero or full quota.
 - Token usage defaults to Today, with Week and Month selections accessible through large touch controls on the touchscreen.
 - Week uses a calendar week beginning Monday at 00:00 in America/Chicago, rather than a rolling seven-day period.
 - Month uses the current calendar month beginning on the first at 00:00 in America/Chicago, rather than a rolling 30-day period.

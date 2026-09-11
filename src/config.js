@@ -1,4 +1,5 @@
 import { resolve } from 'node:path';
+import { parseApiKeyAliases } from './callers.js';
 
 export function managementBase(value) {
   if (!value) return null;
@@ -16,7 +17,7 @@ export function readConfig(env = process.env, argv = process.argv) {
   const port = Number(env.PORT || 8787);
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('PORT must be an integer from 0 to 65535.');
   // The demo cannot contact upstream or open the live database, even with .env loaded.
-  if (demo) return { demo, host: env.HOST || '127.0.0.1', port };
+  if (demo) return { demo, host: env.HOST || '127.0.0.1', port, apiKeyAliases: [] };
   let codexWeights;
   try { codexWeights = JSON.parse(env.CODEX_ACCOUNT_WEIGHTS || '{}'); } catch { throw new Error('CODEX_ACCOUNT_WEIGHTS must be a JSON object.'); }
   if (!codexWeights || Array.isArray(codexWeights) || typeof codexWeights !== 'object' ||
@@ -37,5 +38,6 @@ export function readConfig(env = process.env, argv = process.argv) {
     managementKey: env.MANAGEMENT_KEY || '',
     respUrl, respPassword: env.CLIPROXYAPI_RESP_PASSWORD || env.MANAGEMENT_KEY || '',
     codexWeights, dataPath: resolve(env.DATA_PATH || 'data/dashboard.sqlite'),
+    apiKeyAliases: parseApiKeyAliases(env.API_KEY_ALIASES),
   };
 }

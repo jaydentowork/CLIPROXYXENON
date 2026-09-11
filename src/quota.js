@@ -9,6 +9,9 @@ import { managementBase } from './config.js';
 const INCLUDED_PROVIDERS = ['antigravity', 'claude', 'codex'];
 
 const REQUEST_TIMEOUT_MS = 10000;
+// Spacing between upstream account calls, so a provider is not asked for every
+// account's quota in one burst.
+const DEFAULT_SPACING_MS = 500;
 const MAX_MESSAGE_LENGTH = 200;
 const EXHAUSTED_AT_OR_BELOW = 0;
 
@@ -112,6 +115,13 @@ function clean(message) {
     .slice(0, MAX_MESSAGE_LENGTH);
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    timer.unref?.();
+  });
+}
+
 function toIso(ms) {
   return Number.isFinite(ms) && Math.abs(ms) <= 8.64e15 ? new Date(ms).toISOString() : null;
 }
@@ -156,7 +166,7 @@ function parseCodexUsage(payload, nowMs) {
   const scopes = [{ model: 'all', rate: rateLimit }, { model: 'code review', rate: payload?.code_review_rate_limit }];
   for (const extra of Array.isArray(payload?.additional_rate_limits) ? payload.additional_rate_limits : []) {
     const model = asText(extra.limit_name ?? extra.metered_feature);
-    if (model) scopes.push({ model, rate: extra.rate_limit });
+    if (model && !/spark/i.test(model)) scopes.push({ model, rate: extra.rate_limit });
   }
   for (const { model, rate } of scopes) {
     if (!asRecord(rate)) continue;
@@ -334,7 +344,8 @@ export function createQuotaService({
   baseUrl,
   managementKey,
   codexWeights = {},
-  intervalMs = 5000,
+  intervalMs = 30 * 60 * 1000,
+  spacingMs = DEFAULT_SPACING_MS,
   fetchImpl = fetch,
   now = () => Date.now(),
 } = {}) {
@@ -351,10 +362,33 @@ export function createQuotaService({
   let started = false;
   let stopped = false;
   let inFlight = null;
-  let nextAllowedAtMs = 0;
+  // The management API throttling us pauses everything; an upstream provider
+  // throttling one of its accounts pauses only that provider.
+  let managementPausedUntilMs = 0;
+  const providerPausedUntilMs = new Map();
+  let lastRequestAtMs = 0;
   let fatalMessage = '';
   let activeAbort = null;
   const rejectedAccounts = new Set();
+
+  function pauseManagement(untilMs) {
+    managementPausedUntilMs = Math.max(managementPausedUntilMs, untilMs);
+  }
+
+  function pauseProvider(provider, untilMs) {
+    providerPausedUntilMs.set(provider, Math.max(providerPausedUntilMs.get(provider) ?? 0, untilMs));
+  }
+
+  function pausedUntil(provider) {
+    return Math.max(managementPausedUntilMs, providerPausedUntilMs.get(provider) ?? 0);
+  }
+
+  // Keeps upstream account calls from arriving as one burst.
+  async function spaceRequests() {
+    const waitMs = spacingMs > 0 && lastRequestAtMs > 0 ? lastRequestAtMs + spacingMs - now() : 0;
+    if (waitMs > 0) await sleep(waitMs);
+    lastRequestAtMs = now();
+  }
 
   function snapshot() {
     const result = {};
@@ -364,7 +398,8 @@ export function createQuotaService({
       const observedKeys = new Set();
       const exhaustedKeys = new Set();
       const windows = [];
-      for (const window of state.windows.values()) {
+      const reportedWindows = [...state.windows.values()].filter(window => window.observations.size > 0);
+      for (const window of reportedWindows.length ? reportedWindows : state.windows.values()) {
         const observations = [...window.observations.entries()].filter(([key]) => {
           const account = accountsByKey.get(key);
           return account && weightFor(provider, account, weights) !== null;
@@ -397,10 +432,6 @@ export function createQuotaService({
           message = `${unmapped} account(s) excluded: no configured weight.`;
         } else if (included.length === 0) {
           message = note || (observations.length ? 'Quota values are not available.' : 'Unknown until the first reading.');
-        } else if (stale) {
-          message = note
-            ? `Stale: showing the last successful reading. ${note}`
-            : 'Stale: showing the last successful reading.';
         } else if (note) {
           message = note;
         }
@@ -439,12 +470,12 @@ export function createQuotaService({
       throw new QuotaError(`${label} failed; check backend connectivity.`);
     }
     const retryMs = retryAfterMs(response.headers, now());
-    if (retryMs !== null) nextAllowedAtMs = Math.max(nextAllowedAtMs, now() + retryMs);
+    if (retryMs !== null) pauseManagement(now() + retryMs);
     if (response.status === 401 || response.status === 403) {
       throw new QuotaError(`Management authentication failed (HTTP ${response.status}).`, true);
     }
     if (response.status === 429) {
-      nextAllowedAtMs = Math.max(nextAllowedAtMs, now() + (retryMs ?? 60000));
+      pauseManagement(now() + (retryMs ?? 60000));
       throw new QuotaError(`${label} was throttled (HTTP 429).`);
     }
     if (!response.ok) throw new QuotaError(`${label} failed (HTTP ${response.status}).`);
@@ -500,8 +531,8 @@ export function createQuotaService({
     );
     const statusCode = Number(body?.status_code ?? body?.statusCode);
     const retryMs = headerRetryAfter(body?.header, now());
-    if (retryMs !== null) nextAllowedAtMs = Math.max(nextAllowedAtMs, now() + retryMs);
-    if (statusCode === 429) nextAllowedAtMs = Math.max(nextAllowedAtMs, now() + (retryMs ?? 60000));
+    if (retryMs !== null) pauseProvider(account.provider, now() + retryMs);
+    if (statusCode === 429) pauseProvider(account.provider, now() + (retryMs ?? 60000));
     if (statusCode === 401 || statusCode === 403) rejectedAccounts.add(account.key);
     if (!Number.isFinite(statusCode) || statusCode < 200 || statusCode >= 300) {
       throw new QuotaError(`${account.provider} quota request failed (HTTP ${Number.isFinite(statusCode) ? statusCode : 'unknown'}).`);
@@ -593,13 +624,15 @@ export function createQuotaService({
       let failures = 0;
       for (const account of accounts) {
         if (stopped) return snapshot();
-        if (now() < nextAllowedAtMs || rejectedAccounts.has(account.key)) {
+        if (now() < pausedUntil(provider) || rejectedAccounts.has(account.key)) {
           failures += 1;
           markAccountStale(state, account, rejectedAccounts.has(account.key)
             ? 'Provider rejected account authentication; refresh paused until service restart.'
             : 'Quota refresh paused to respect upstream throttling.');
           continue;
         }
+        await spaceRequests();
+        if (stopped) return snapshot();
         try {
           applyObservations(state, account, await fetchAccountQuota(account));
         } catch (error) {
@@ -623,7 +656,7 @@ export function createQuotaService({
   function refresh() {
     if (stopped) return Promise.resolve(snapshot());
     if (inFlight) return inFlight;
-    if (now() < nextAllowedAtMs) return Promise.resolve(snapshot());
+    if (now() < managementPausedUntilMs) return Promise.resolve(snapshot());
     if (!configured) {
       for (const state of states.values()) state.message = 'Management API is not configured.';
       return Promise.resolve(snapshot());
