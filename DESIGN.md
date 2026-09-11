@@ -14,15 +14,16 @@ The monitoring data and existing controls remain the focus.
 
 - One fixed meadow panorama (`public/1.png`) covers the viewport, with a dark
   gradient at the top to keep the white header readable.
-- Liquid glass keeps the scenery visible: a 30% dark green-neutral tint
-  (`oklch(0.20 0.014 150 / 0.3)`), a restrained diagonal sheen, fine 28% white
+- Liquid glass keeps the scenery visible: a 20% dark green-neutral tint
+  (`oklch(0.17 0.012 155 / 0.20)`), a restrained diagonal sheen, fine 32% white
   rims, bright inset top and side highlights, and a soft outer shadow.
-- The shared optical filter uses 12px blur, 135% saturation, and 68% brightness.
-  Greenery and flowers stay visible through the provider cards and live feed.
-  Text has a small dark shadow; nested content adds no additional blur.
+- The shared optical filter uses 8px blur, 145% saturation, 82% brightness,
+  and a slight contrast lift. Greenery and flowers stay visible through the
+  provider cards and live feed. A pointer-following specular sheen sharpens the
+  glass without hiding data; text has a small dark shadow.
 - Browsers without backdrop filtering use an opaque dark green-neutral surface.
   Settings retain that stronger surface for form readability.
-- Primary panels have a 36px radius, reduced to 28px on phones. Insets use 12px.
+- Primary panels have a 24px radius, reduced to 20px on phones. Insets use 12px.
 - Scene, material, signals, spacing, and fonts are defined in `public/style.css`.
 
 ## Color and legibility
@@ -62,10 +63,10 @@ scroll internally on the EDGE.
   thumb indicates the selected period. Keep visible keyboard focus.
 - **Provider:** provider name and period, large request/token totals and cache-hit percentage, a subtle
   three-column breakdown (Input, Output, Est. cost), then quota windows.
-- **Provider picker:** a card flips on mouse hover to reveal Antigravity, Claude,
-  Codex, OpenCode, and Mimo. Each of three independent selections is saved in
-  browser storage. A 44px change button supports touch and keyboard; Escape or
-  the close button returns to the metrics. Inactive faces are inert and hidden
+- **Provider picker:** a card flips on mouse hover to reveal Gemini, Claude,
+  ChatGPT, DeepSeek, and Mimo. Each of three independent selections is saved in
+  browser storage. The focusable card face opens the picker by click, tap, Enter,
+  or Space; Escape or the close button returns to the metrics. Inactive faces are inert and hidden
   from assistive technology. Reduced motion swaps faces instantly. Providers
   without data from the current connection display Unknown rather than zero.
 - **Usage-only cards:** MiMo shows Requests and Tokens above the Input / Output / Est. cost detail row and hides cache-hit percentage and quota. OpenCode now uses the full quota layout with Rolling, Weekly, and Monthly windows. Switching providers restores the matching layout. Unpriced models show n/a.
@@ -76,7 +77,7 @@ scroll internally on the EDGE.
   with a dashed outline. A compact relative **Updated** age sits beside the
   Remaining quota heading. Compact-height screens use a 44px strip.
 - **Model breakdown:** a fine divider below quota separates a per-model table of
-  reported tokens, share of the provider's tokens, and estimated cost. Rows follow
+  reported tokens and share of the provider tokens on one line, then estimated cost. Rows follow
   Today/Week/Month and the API-key filter, sorted by token usage. Long lists scroll
   inside the glass card; MiMo shows the same section below its usage totals.
   Unpriced models show n/a; incomplete cost estimates say partial. Background
@@ -96,8 +97,9 @@ scroll internally on the EDGE.
 
 Counters retain the existing 700ms update tween. Quota fills ease to their new
 percentage over 760ms. Newly completed feed rows enter briefly; unchanged rows
-stay still. The collector's pip pulses only while collecting. Reduced-motion
-preferences collapse transitions and remove the pulse.
+stay still. The collector's pip pulses only while collecting. Fine pointers get
+a 3px glass lift and 0.8% zoom. Reduced-motion preferences collapse transitions,
+remove the lift, and keep the sheen static.
 
 Preserve polling, response ordering, feed scroll/touch stability, period and
 caller selection, and fullscreen handling. Keep at least 44 × 44px interactive

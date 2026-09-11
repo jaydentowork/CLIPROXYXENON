@@ -3,11 +3,14 @@ color-scheme: dark;
   --scene-a: oklch(0.47 0.018 245);
   --scene-b: oklch(0.33 0.012 250);
   --scene-c: oklch(0.25 0.012 55);
-  --glass: oklch(0.20 0.014 150 / 0.3);
-  --glass-filter: blur(12px) saturate(135%) brightness(0.68);
-  --glass-strong: oklch(0.27 0.014 150);
-  --glass-edge: oklch(1 0 0 / 0.62);
-  --glass-rim: oklch(1 0 0 / 0.28);
+  --glass: oklch(0.17 0.012 155 / 0.20);
+  --glass-filter: blur(8px) saturate(145%) brightness(0.82) contrast(1.04);
+  --glass-strong: oklch(0.24 0.014 150);
+  --glass-edge: oklch(1 0 0 / 0.72);
+  --glass-rim: oklch(1 0 0 / 0.32);
+  --glass-rim-bright: oklch(1 0 0 / 0.52);
+  --glass-x: 72%;
+  --glass-y: -8%;
   --hairline: oklch(1 0 0 / 0.15);
   --track: oklch(1 0 0 / 0.19);
   --shadow: 0 18px 42px -20px oklch(0 0 0 / 0.6);
@@ -25,7 +28,7 @@ color-scheme: dark;
   --unknown: oklch(0.75 0.01 240);
   --font-sans: "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, "SF Pro Text", ui-sans-serif, system-ui, Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", "Segoe UI Mono", Menlo, Consolas, monospace;
-  --radius-lg: 36px;
+  --radius-lg: 24px;
   --radius: 20px;
   --radius-sm: 12px;
   --pad: 24px;
@@ -73,18 +76,47 @@ height: 100dvh;
   padding: 18px var(--pad) var(--pad);
 }
 
-/* Liquid glass reveals the landscape; tint and optical shading protect the text. */
+/* Liquid glass keeps the scene legible while the meadow stays visible through it. */
 .provider, .provider-picker, .feed, .banner, .demo {
-  background: linear-gradient(135deg, oklch(1 0 0 / 0.10), oklch(1 0 0 / 0.015) 40%, transparent 65%), var(--glass);
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  background:
+    linear-gradient(135deg, oklch(1 0 0 / 0.13), oklch(1 0 0 / 0.025) 38%, transparent 70%),
+    var(--glass);
   -webkit-backdrop-filter: var(--glass-filter);
   backdrop-filter: var(--glass-filter);
   border: 1px solid var(--glass-rim);
   box-shadow:
     inset 0 1px 0 var(--glass-edge),
-    inset 0 -1px 0 oklch(1 0 0 / 0.10),
-    inset 1px 0 0 oklch(1 0 0 / 0.12),
+    inset 0 -1px 0 oklch(1 0 0 / 0.14),
+    inset 1px 0 0 oklch(1 0 0 / 0.16),
+    inset -1px 0 0 oklch(1 0 0 / 0.08),
     var(--shadow);
-  text-shadow: 0 1px 2px oklch(0 0 0 / 0.45);
+  text-shadow: 0 1px 3px oklch(0 0 0 / 0.55);
+}
+
+/* A restrained specular layer follows the pointer without covering the data. */
+.provider::before, .provider-picker::before, .feed::before, .banner::before, .demo::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  border-radius: inherit;
+  pointer-events: none;
+  background:
+    radial-gradient(300px circle at var(--glass-x) var(--glass-y), oklch(1 0 0 / 0.18), oklch(1 0 0 / 0.035) 38%, transparent 72%),
+    linear-gradient(118deg, oklch(1 0 0 / 0.12), transparent 25%);
+  mix-blend-mode: screen;
+  opacity: 0.52;
+  transition: opacity 220ms var(--ease);
+}
+@media (hover: hover) and (pointer: fine) {
+  .provider-slot, .feed { transition: transform 280ms var(--ease-expo); }
+  .provider-slot:hover, .feed:hover { transform: translateY(-3px) scale(1.008); }
+  .provider-slot:hover .provider, .provider-slot:hover .provider-picker, .feed:hover { border-color: var(--glass-rim-bright); }
+  .provider:hover::before, .provider-picker:hover::before, .feed:hover::before, .banner:hover::before, .demo:hover::before { opacity: 0.96; }
+  .provider-slot:active, .feed:active { transform: translateY(0) scale(0.998); transition-duration: 120ms; }
 }
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .provider, .provider-picker, .feed, .banner, .demo { background: var(--glass-strong); }
@@ -723,6 +755,7 @@ border-style: dashed;
 }
 .model-usage, .model-cost { text-align: right; white-space: nowrap; }
 .model-share { display: block; margin-top: 2px; color: var(--faint); font-size: 12px; }
+.model-usage .model-share { display: inline; margin: 0 0 0 6px; }
 .model-empty { margin: 0; color: var(--faint); font-size: 14px; }
 
 /* ---------- feed ---------- */
@@ -889,7 +922,7 @@ display: flex;
   .provider-head { flex-wrap: wrap; }
   .totals { column-gap: 8px; }
   .stat-value { font-size: clamp(25px, 7.4vw, 42px); }
-  .provider { border-radius: 28px; }
+  .provider { border-radius: 20px; }
   .ident { gap: 10px; }
   .ident h1 { font-size: 19px; }
   .ident-meta { gap: 6px; font-size: 12px; }
@@ -899,7 +932,7 @@ display: flex;
   .details { padding: 12px 10px; }
   .detail { padding: 0 8px; }
   .detail-value { font-size: 18px; }
-  .feed { padding: 20px 16px; border-radius: 28px; }
+  .feed { padding: 20px 16px; border-radius: 20px; }
   .feed-head { flex-wrap: wrap; }
   /* Narrow screens keep Out and Cost; In and Cached stay in the tooltip. */
   .feed-cols, .row { grid-template-columns: 54px minmax(0, 1fr) 50px 56px 56px; gap: 5px; }
@@ -920,6 +953,7 @@ display: flex;
   .window .bar-fill::after { display: none; }
   .is-counting { color: inherit; }
   .collector .pip::after { display: none; }
+  .provider-slot:hover, .feed:hover, .provider-slot:active, .feed:active { transform: none; }
 }
 /* Shared control treatment and reading states. */
 h1, h2 { text-wrap: balance; }
@@ -996,7 +1030,8 @@ p { text-wrap: pretty; }
   -webkit-backface-visibility: hidden;
   transition: transform 520ms var(--ease-expo);
 }
-.provider-front { transform: rotateY(0deg); }
+.provider-front { transform: rotateY(0deg); cursor: pointer; }
+.provider-front:focus-visible { outline: 3px solid var(--primary-ink); outline-offset: 3px; }
 .provider-picker {
   display: flex;
   flex-direction: column;
@@ -1013,7 +1048,6 @@ p { text-wrap: pretty; }
 .provider-actions, .picker-head { display: flex; align-items: center; gap: 10px; }
 .provider-actions { flex: none; }
 .provider-head { align-items: center; }
-.provider-change { color: var(--primary-ink); font-size: 24px; }
 .picker-head { justify-content: space-between; }
 .picker-head h2 { font-size: 22px; font-weight: 500; }
 .picker-head .tool { flex: none; font-size: 26px; }
@@ -1046,7 +1080,7 @@ p { text-wrap: pretty; }
   .provider-slot { min-height: 430px; }
 }
 @media (max-width: 600px) {
-  .provider-picker { padding: 18px; border-radius: 28px; }
+  .provider-picker { padding: 18px; border-radius: 20px; }
   .provider-head { gap: 8px; }
   .provider-head h2 { font-size: 22px; }
   .provider-actions { gap: 4px; }

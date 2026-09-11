@@ -98,7 +98,6 @@ test('provider picker supports hover, touch controls, Escape, and independent pe
   const first = slots[0];
   const front = first.children[0];
   const picker = first.children[1];
-  const change = front.children[0].children[1].children[1];
   first.listeners.pointerenter({ pointerType: 'touch' });
   assert.equal(picker.attributes['aria-hidden'], 'true');
   first.listeners.pointerenter({ pointerType: 'mouse' });
@@ -106,14 +105,14 @@ test('provider picker supports hover, touch controls, Escape, and independent pe
   assert.equal(front.inert, true);
   first.listeners.pointerleave();
   assert.equal(picker.attributes['aria-hidden'], 'true');
-  change.listeners.click();
+  front.listeners.click();
   assert.equal(picker.inert, false);
   first.listeners.keydown({ key: 'Escape', preventDefault() {} });
   assert.equal(picker.inert, true);
 
-  change.listeners.click();
-  picker.children[2].children[2].listeners.click(); // Codex
-  assert.equal(front.children[0].children[0].textContent, 'Codex');
+  front.listeners.click();
+  picker.children[2].children[2].listeners.click(); // ChatGPT
+  assert.equal(front.children[0].children[0].textContent, 'ChatGPT');
   assert.equal(front.children[1].children[0].children[0].textContent, '214');
   assert.equal(slots[1].children[0].children[0].children[0].textContent, 'Claude');
   assert.equal(picker.attributes['aria-hidden'], 'true');
@@ -121,7 +120,7 @@ test('provider picker supports hover, touch controls, Escape, and independent pe
 
   const restored = browserFixture(ui.saved.get('cliproxyapi-monitor.providers'));
   await restored.respond(0, demoSnapshot('today'));
-  assert.equal(restored.nodes.get('providers').children[0].children[0].children[0].children[0].textContent, 'Codex');
+  assert.equal(restored.nodes.get('providers').children[0].children[0].children[0].children[0].textContent, 'ChatGPT');
 });
 
 test('provider changes during a pending period never show another provider totals', async () => {
@@ -142,7 +141,7 @@ test('provider changes during a pending period never show another provider total
 test('invalid saved provider ids fall back to the default slot', () => {
   const ui = browserFixture('["removed-provider","mimo","codex"]');
   const slots = ui.nodes.get('providers').children;
-  assert.equal(slots[0].children[0].children[0].children[0].textContent, 'Antigravity');
+  assert.equal(slots[0].children[0].children[0].children[0].textContent, 'Gemini');
   assert.equal(slots[1].children[0].children[0].children[0].textContent, 'Mimo');
 });
 

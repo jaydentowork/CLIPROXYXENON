@@ -1,8 +1,8 @@
 const PROVIDERS = [
-  { id: 'antigravity', name: 'Antigravity' },
+  { id: 'antigravity', name: 'Gemini' },
   { id: 'claude', name: 'Claude' },
-  { id: 'codex', name: 'Codex' },
-  { id: 'opencode', name: 'OpenCode' },
+  { id: 'codex', name: 'ChatGPT' },
+  { id: 'opencode', name: 'DeepSeek' },
   { id: 'mimo', name: 'Mimo', usageOnly: true },
 ];
 
@@ -58,6 +58,29 @@ const dom = {
 
 const API_KEY_STORAGE = 'cliproxyapi-monitor.api-key';
 
+const GLASS_SURFACES = '.provider, .provider-picker, .feed, .banner, .demo';
+const GLASS_MOTION = typeof matchMedia !== 'function' || !matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+function trackGlassLight(event) {
+  if (event.pointerType === 'touch' || !GLASS_MOTION) return;
+  const surface = event.target?.closest?.(GLASS_SURFACES);
+  if (!surface) return;
+  const rect = surface.getBoundingClientRect();
+  if (!rect.width || !rect.height) return;
+  surface.style.setProperty('--glass-x', ((event.clientX - rect.left) / rect.width * 100).toFixed(2) + '%');
+  surface.style.setProperty('--glass-y', ((event.clientY - rect.top) / rect.height * 100).toFixed(2) + '%');
+}
+
+document.addEventListener('pointermove', trackGlassLight, { passive: true });
+document.addEventListener('pointerout', event => {
+  if (event.pointerType === 'touch') return;
+  const surface = event.target?.closest?.(GLASS_SURFACES);
+  if (surface && !surface.contains(event.relatedTarget)) {
+    surface.style.removeProperty('--glass-x');
+    surface.style.removeProperty('--glass-y');
+  }
+}, { passive: true });
+
 const PROVIDER_SELECTION_KEY = 'cliproxyapi-monitor.providers';
 const DEFAULT_PROVIDER_IDS = ['antigravity', 'claude', 'codex'];
 
@@ -78,10 +101,10 @@ function setCardFlipped(record, open, focus = false) {
   record.picker.inert = !open;
   record.front.setAttribute('aria-hidden', String(open));
   record.picker.setAttribute('aria-hidden', String(!open));
-  record.changeButton.setAttribute('aria-expanded', String(open));
+  record.front.setAttribute('aria-expanded', String(open));
   record.card.classList[open ? 'add' : 'remove']('is-flipped');
   if (open && focus) record.options.get(selectedProviders[record.slot]).focus();
-  if (!open && (focus || record.picker.contains(document.activeElement))) record.changeButton.focus();
+  if (!open && (focus || record.picker.contains(document.activeElement))) record.front.focus();
 }
 
 function selectCardProvider(record, id) {
@@ -294,14 +317,8 @@ function buildCard({ id, name }, slot) {
   const head = el('header', 'provider-head');
   const heading = el('h2', null, name);
   const periodLabel = el('span', 'provider-period');
-  const changeButton = el('button', 'tool provider-change', '↔');
-  changeButton.type = 'button';
-  changeButton.setAttribute('aria-label', `Change provider for card ${slot + 1}`);
-  changeButton.setAttribute('aria-expanded', 'false');
-  changeButton.setAttribute('aria-controls', `provider-picker-${slot}`);
-  changeButton.title = 'Change provider';
   const actions = el('div', 'provider-actions');
-  actions.append(periodLabel, changeButton);
+  actions.append(periodLabel);
   head.append(heading, actions);
 
   const stats = {};
@@ -362,7 +379,7 @@ function buildCard({ id, name }, slot) {
   pickerHead.append(el('h2', null, 'Choose provider'), closeButton);
   const choices = el('div', 'provider-choices');
   const options = new Map();
-  const record = { card, front, picker, heading, changeButton, options, slot, providerId: id,
+  const record = { card, front, picker, heading, options, slot, providerId: id,
     periodLabel, stats, totals, details, windowsHead, quotaUpdated, windows, note,
     modelBreakdown, modelTable, modelRows, modelEmpty, modelSignature: null, modelScope: null,
     windowIds: '', windowNodes: new Map() };
@@ -379,8 +396,18 @@ function buildCard({ id, name }, slot) {
   picker.append(pickerHead, el('p', 'picker-note', 'Choose what this card shows.'), choices);
   card.append(front, picker);
   front.dataset.provider = id;
+  front.tabIndex = 0;
+  front.setAttribute('role', 'button');
+  front.setAttribute('aria-expanded', 'false');
+  front.setAttribute('aria-label', 'Choose provider for card ' + (slot + 1));
 
-  changeButton.addEventListener('click', () => setCardFlipped(record, true, true));
+  front.addEventListener('click', () => setCardFlipped(record, true, true));
+  front.addEventListener('keydown', event => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      setCardFlipped(record, true, true);
+    }
+  });
   closeButton.addEventListener('click', () => setCardFlipped(record, false, true));
   card.addEventListener('pointerenter', event => {
     if (event.pointerType === 'mouse' && !front.contains(document.activeElement)) setCardFlipped(record, true);
