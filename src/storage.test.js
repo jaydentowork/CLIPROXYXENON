@@ -76,6 +76,49 @@ test('only included providers become history', (t) => {
   assert.equal(snapshot.totals.xai, undefined);
 });
 
+test('OpenAI-compatible provider fields infer the provider and flat token fields', (t) => {
+  const timestampMs = 1789084285961;
+  const fixture = withStore(() => timestampMs + 10);
+  t.after(() => fixture.dispose());
+  const { store } = fixture;
+
+  const stored = store.ingest({
+    request_id: '688bbbb4',
+    timestamp_ms: timestampMs,
+    model: 'deepseek-flash',
+    auth_index: 'add7e1f19747ef6e',
+    auth_provider_snapshot: 'openai-compatible-opencode',
+    executor_type: 'OpenAICompatExecutor',
+    input_tokens: 106271,
+    output_tokens: 373,
+    cached_tokens: 0,
+    cache_read_tokens: 106112,
+    reasoning_tokens: 187,
+    total_tokens: 106644,
+    latency_ms: 3180,
+    failed: false,
+  });
+
+  assert.equal(stored.provider, 'opencode');
+  assert.equal(stored.tokens, 106644);
+  const prefixed = store.ingest({
+    request_id: 'live-shape',
+    timestamp_ms: timestampMs + 1,
+    provider: 'openai-compatible-opencode',
+    model: 'deepseek-flash',
+    total_tokens: 42,
+    failed: false,
+  });
+  assert.equal(prefixed.provider, 'opencode');
+  const snapshot = store.snapshot('today');
+  assert.equal(snapshot.recent[1].inputTokens, 106271);
+  assert.equal(snapshot.recent[1].outputTokens, 373);
+  assert.equal(snapshot.recent[1].cachedTokens, 106112);
+  assert.equal(snapshot.totals.opencode.requests, 2);
+  assert.equal(snapshot.totals.opencode.tokens, 106686);
+  assert.equal(snapshot.totals.opencode.reasoningTokens, 187);
+});
+
 test('credentials and unused payload fields never reach storage', (t) => {
   const fixture = withStore();
   t.after(() => fixture.dispose());

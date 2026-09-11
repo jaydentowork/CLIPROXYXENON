@@ -129,14 +129,14 @@ test('provider changes during a pending period never show another provider total
   await ui.respond(0, demoSnapshot('today'));
   ui.buttons[2].listeners.click();
   const first = ui.nodes.get('providers').children[0];
-  first.children[1].children[2].children[3].listeners.click(); // OpenCode
+  first.children[1].children[2].children[4].listeners.click(); // Mimo
   const front = first.children[0];
-  assert.equal(front.children[0].children[0].textContent, 'OpenCode');
+  assert.equal(front.children[0].children[0].textContent, 'Mimo');
   assert.equal(front.children[1].children[0].children[0].textContent, 'Unknown');
   assert.equal(front.children[4].children.length, 0);
   const month = demoSnapshot('month');
   await ui.respond(1, month);
-  assert.equal(front.children[1].children[0].children[0].textContent, month.totals.opencode.requests.toLocaleString('en-US'));
+  assert.equal(front.children[1].children[0].children[0].textContent, month.totals.mimo.requests.toLocaleString('en-US'));
 });
 
 test('invalid saved provider ids fall back to the default slot', () => {
@@ -146,29 +146,37 @@ test('invalid saved provider ids fall back to the default slot', () => {
   assert.equal(slots[1].children[0].children[0].children[0].textContent, 'Mimo');
 });
 
-test('usage-only cards show requests and tokens above Input, Output, and Est. cost', async () => {
-  const ui = browserFixture('["opencode","mimo","codex"]');
+test('MiMo remains usage-only while OpenCode restores the quota layout', async () => {
+  const ui = browserFixture('["mimo","claude","codex"]');
   const payload = demoSnapshot('today');
-  payload.totals.mimo.costUsd = 1234;
   await ui.respond(0, payload);
   const slots = ui.nodes.get('providers').children;
-  for (const slot of slots.slice(0, 2)) {
-    const front = slot.children[0];
-    assert.deepEqual(front.children[1].children.map(stat => stat.children[1].textContent), ['Requests', 'Tokens']);
-    assert.equal(front.children[2].hidden, false);
-    assert.deepEqual(front.children[2].children.map(stat => stat.children[0].textContent), ['Input', 'Output', 'Est. cost']);
-    assert.equal(front.children[3].hidden, true);
-    assert.equal(front.children[4].hidden, true);
-    assert.equal(front.children[5].hidden, true);
-  }
-  assert.equal(slots[1].children[0].children[2].children[2].children[1].textContent, '$1.2K');
-  slots[0].children[1].children[2].children[1].listeners.click(); // Claude
+  const front = slots[0].children[0];
+  assert.deepEqual(front.children[1].children.map(stat => stat.children[1].textContent), ['Requests', 'Tokens']);
+  assert.equal(front.children[2].hidden, false);
+  assert.deepEqual(front.children[2].children.map(stat => stat.children[0].textContent), ['Input', 'Output', 'Est. cost']);
+  assert.equal(front.children[3].hidden, true);
+  assert.equal(front.children[4].hidden, true);
+  assert.equal(front.children[5].hidden, true);
+
+  slots[0].children[1].children[2].children[3].listeners.click(); // OpenCode
   const restored = slots[0].children[0];
   assert.deepEqual(restored.children[1].children.map(stat => stat.children[1].textContent), ['Requests', 'Tokens', 'Cache hit']);
   assert.equal(restored.children[2].hidden, false);
   assert.equal(restored.children[3].hidden, false);
   assert.equal(restored.children[4].hidden, false);
   assert.equal(restored.children[2].children[2].children[0].textContent, 'Est. cost');
+});
+
+test('OpenCode shows rolling, weekly, and monthly quota with a compact update age', async () => {
+  const ui = browserFixture('["opencode","mimo","codex"]');
+  await ui.respond(0, demoSnapshot('today'));
+  const front = ui.nodes.get('providers').children[0].children[0];
+  const windows = front.children[4];
+  assert.deepEqual(windows.children.map(node => node.children[0].children[0].textContent), ['Rolling', 'Weekly', 'Monthly']);
+  assert.deepEqual(windows.children.map(node => node.children[0].children[2].textContent), ['85%', '94%', '97%']);
+  assert.equal(front.children[3].children[0].textContent, 'Remaining quota');
+  assert.match(front.children[3].children[1].textContent, /^Updated /);
 });
 
 test('API-key filter saves locally, sends only its hash, clears old data, and survives reload', async () => {

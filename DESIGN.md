@@ -64,12 +64,13 @@ scroll internally on the EDGE.
   the close button returns to the metrics. Inactive faces are inert and hidden
   from assistive technology. Reduced motion swaps faces instantly. Providers
   without data from the current connection display Unknown rather than zero.
-- **Usage-only cards:** OpenCode and MiMo show Requests and Tokens above the Input / Output / Est. cost detail row. Hide cache-hit percentage and quota. Switching to a quota provider restores its full layout. Unpriced models show n/a.
+- **Usage-only cards:** MiMo shows Requests and Tokens above the Input / Output / Est. cost detail row and hides cache-hit percentage and quota. OpenCode now uses the full quota layout with Rolling, Weekly, and Monthly windows. Switching providers restores the matching layout. Unpriced models show n/a.
 - **Quota gauge:** a 48px-high rounded glass strip with a fine bright rim and a
   soft green fill that fades at its edge. The quota window label sits on the left
   and its remaining percentage on the right, inside the bar. Fill width remains
   the real remaining percentage. Low quota uses amber; Unknown stays unfilled
-  with a dashed outline. Compact-height screens use a 44px strip.
+  with a dashed outline. A compact relative **Updated** age sits beside the
+  Remaining quota heading. Compact-height screens use a 44px strip.
 - **Live feed:** time, provider/model, input, output, cached tokens, estimated
   cost, and result. Aliases remain visible when space permits. Smaller displays
   stack provider and model; phones keep Output and Cost, with other token data

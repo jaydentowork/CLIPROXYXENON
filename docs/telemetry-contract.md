@@ -9,14 +9,14 @@ The collector consumes broadcast `message` frames on channel `usage`, parsing ea
 | Source | Stored meaning |
 | --- | --- |
 | `timestamp` (RFC3339 with timezone or epoch milliseconds) | UTC instant |
-| `provider` | Only `antigravity`, `claude`, `codex`, `opencode`, `mimo`, case normalized |
+| `provider`; fallback `auth_provider_snapshot` | Only `antigravity`, `claude`, `codex`, `opencode`, `mimo`, case normalized. Either field may prefix the provider as `openai-compatible-<name>`; the prefix is removed before matching. |
 | `auth_index` | Account reference for correlation |
 | `model`, fallback `alias` | Model label |
 | `request_id` | Correlation identifier, deliberately not unique |
 | `failed` | Completed request outcome |
 | `latency_ms` | Duration when supplied |
-| `tokens.total_tokens` | Actual total, never reconstructed by summing overlapping categories |
-| `tokens.input_tokens`, `output_tokens`, `cached_tokens`, `reasoning_tokens` | Available category counts, stored separately |
+| `tokens.total_tokens` or flat `total_tokens` | Actual total, never reconstructed by summing overlapping categories |
+| `tokens.input_tokens`, `output_tokens`, `cached_tokens`, `reasoning_tokens` or flat counterparts | Available category counts, stored separately. `cache_read_tokens` is accepted as a cached-token fallback. |
 | `api_key` | Reduced to a 16-character SHA-256 caller id before storage; the key itself is discarded. Aliases from `API_KEY_ALIASES` map ids back to labels for the browser. |
 
 Unused raw fields—including source/email, endpoint, authentication metadata, and response headers—are discarded before persistence. The app does not log raw telemetry. Missing token values stay null in feed records. Provider totals sum the reported values; cached/reasoning categories are never added again to the source total. Two attempts with the same request ID remain separate records. xAI is excluded from storage, totals, and feed. Antigravity Claude-model requests remain included.

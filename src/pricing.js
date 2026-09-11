@@ -36,9 +36,10 @@ const PRICES = {
   'gemini-2.0-flash': { input: 0.1, cached: 0.025, output: 0.4 },
 };
 
-// User-supplied MiMo USD list prices per million tokens, 2026-09-10.
-// Match exact IDs so audio or future model variants never inherit a text rate.
+// User-supplied USD list prices per million tokens, 2026-09-10.
+// Match exact IDs so variants never inherit the wrong text or tier rate.
 const EXACT_PRICES = {
+  'deepseek-flash': { input: 0.3, cached: 0.006, output: 1.2 },
   'mimo-v2.5-pro': { input: 0.435, cached: 0.0036, output: 0.87 },
   'mimo-v2.5': { input: 0.14, cached: 0.0028, output: 0.28 },
 };

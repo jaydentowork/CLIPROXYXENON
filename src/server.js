@@ -32,7 +32,12 @@ export async function startApp(config = readConfig()) {
       import('./storage.js'), import('./quota.js'), import('./collector.js'),
     ]);
     store = createStore({ path: config.dataPath, apiKeyAliases: config.apiKeyAliases });
-    quotaService = createQuotaService({ baseUrl: config.baseUrl, managementKey: config.managementKey, codexWeights: config.codexWeights });
+    quotaService = createQuotaService({
+      baseUrl: config.baseUrl,
+      managementKey: config.managementKey,
+      codexWeights: config.codexWeights,
+      opencodeApiKeys: config.opencodeApiKeys,
+    });
     if (config.respUrl) collector = startCollector({ url: config.respUrl, password: config.respPassword, store,
       onStatus: status => { collectorStatus = status; } });
     quotaService.start();

@@ -35,7 +35,24 @@ export function demoSnapshot(period, now = Date.now(), caller = null) {
       })) };
   }
 
-  // Usage-only providers report activity and estimated cost, with no quota model.
+  quota.opencode = { accounts: 2, exhausted: 0, observedAccounts: 2, message: null,
+    windows: [
+      { id: 'rolling', label: 'Rolling', remainingPercent: 85 },
+      { id: 'weekly', label: 'Weekly', remainingPercent: 94 },
+      { id: 'monthly', label: 'Monthly', remainingPercent: 97 },
+    ].map((window, index) => ({
+      ...window,
+      model: null,
+      observedAccounts: 2,
+      totalAccounts: 2,
+      stale: false,
+      observedAt: iso(now),
+      nextResetAt: iso(now + [7, 80, 720][index] * 3600000),
+      latestResetAt: iso(now + [8, 82, 740][index] * 3600000),
+      message: null,
+    })) };
+
+  // MiMo reports activity and estimated cost, with no quota model.
   for (const [provider, model, requests, tokenBase, cacheShare] of [
     ['opencode', 'claude-sonnet-4-5', 146, 2314800, 0.48],
     ['mimo', 'mimo-v2.5-pro', 284, 8642400, 0.70],

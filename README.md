@@ -1,6 +1,6 @@
 # XENEON EDGE
 
-A standalone CLIProxyAPI monitoring display for the 2560 × 720 CORSAIR XENEON EDGE. One Node service collects completed requests into SQLite, caches provider quota, and serves a native browser interface. Antigravity, Claude, and Codex include usage and quota. OpenCode and MiMo report requests, tokens, and estimated cost only; xAI is excluded. There is no dependency on CPAMP's service or database.
+A standalone CLIProxyAPI monitoring display for the 2560 × 720 CORSAIR XENEON EDGE. One Node service collects completed requests into SQLite, caches provider quota, and serves a native browser interface. Antigravity, Claude, Codex, and OpenCode include usage and quota. MiMo reports requests, tokens, and estimated cost only; xAI is excluded. There is no dependency on CPAMP's service or database.
 
 ## Run locally
 
@@ -30,6 +30,7 @@ For development, run `npm run dev` to restart the server automatically when its 
 | --- | --- |
 | `CLIPROXYAPI_BASE_URL` | Management HTTP(S) base. `/v0/management` is appended exactly once. No credentials in the URL. |
 | `MANAGEMENT_KEY` | Plaintext management key. Kept on the backend. |
+| `OPENCODE_APIKEY` | One or more comma-separated OpenCode API keys. Each key is queried directly, weighted equally, and never sent to the browser. |
 | `CLIPROXYAPI_RESP_URL` | Separate direct `redis://host:port` or `rediss://host:port` usage listener. No HTTP URL or database suffix. |
 | `CLIPROXYAPI_RESP_PASSWORD` | Listener authentication; defaults to the management key. |
 | `CODEX_ACCOUNT_WEIGHTS` | JSON object mapping the exact stable `auth_index` of each Codex account to `5` or `20`. Empty by default; missing weights are explicitly unknown. |
@@ -66,15 +67,17 @@ Today, Week, and Month use `America/Chicago`, including CST/CDT changes. Weeks s
 
 History starts fresh when the service first opens its persistent database. **Tracking since** is durable across restarts, making partial reporting periods visible. Records older than 60 days are removed automatically. Pub/sub has no replay guarantee; known connection gaps are retained and exposed. The service cannot reconstruct requests emitted during a disconnection and does not import CPAMP history.
 
-Quota refresh runs immediately on startup, then every 30 minutes in one coordinated backend schedule, independent of the number of browsers. Unknown readings are never treated as zero or full. Last successful readings remain visible as stale on refresh failure. Partial coverage is shown, and different account reset times are labeled as the next account reset and reset spread. Upstream throttling or failed requests can delay fresh quota readings beyond 30 minutes.
+Quota refresh runs immediately on startup, then every 30 minutes in one coordinated backend schedule, independent of the number of browsers. OpenCode keys are queried directly in the same cycle; their rolling, weekly, and monthly percentages are equal-weighted across keys. Unknown readings are never treated as zero or full. Last successful readings remain visible as stale on refresh failure. Partial coverage is shown, and different account reset times are labeled as the next account reset and reset spread. Upstream throttling or failed requests can delay fresh quota readings beyond 30 minutes.
 
-**Est. cost** uses the public [OpenRouter model catalog](https://openrouter.ai/api/v1/models), fetched at each normal CLI startup with an eight-second timeout. An in-memory map keyed by model name matches normalized names and IDs first, then close, unambiguous names. Vendor prefixes, version separators, date suffixes, and reasoning-effort suffixes are supported; different model generations and batch/free rates are not substituted. OpenRouter's per-token rates are converted to USD per million, and context-length tiers apply to each request before summing. Your supplied MiMo rates remain fixed overrides. If fetching fails, the server reports it and uses built-in fallback rates.
+**Est. cost** uses the public [OpenRouter model catalog](https://openrouter.ai/api/v1/models), fetched at each normal CLI startup with an eight-second timeout. An in-memory map keyed by model name matches normalized names and IDs first, then close, unambiguous names. Vendor prefixes, version separators, date suffixes, and reasoning-effort suffixes are supported; different model generations and batch/free rates are not substituted. OpenRouter's per-token rates are converted to USD per million, and context-length tiers apply to each request before summing. Your supplied MiMo rates and the peak-hour `deepseek-flash` rates remain fixed overrides. If fetching fails, the server reports it and uses built-in fallback rates.
 
 These are current list-price estimates, not subscription charges or historical invoices. Input, cached reads, and output are priced; native Claude input excludes cached reads, while other providers use inclusive input counts. Cache writes and other charges absent from telemetry are excluded. Missing token breakdowns or unmatched models show `n/a`; unpriced requests are excluded from provider cost totals. No request history is rewritten when prices change.
 
 In **Settings → Usage filter**, paste your proxy API key and choose **Apply filter**. The raw key is saved only in this browser's localStorage; the browser sends its SHA-256/base64url caller hash (first 16 characters) to filter requests, tokens, and costs. No server alias configuration is needed. A key with no matching recorded events shows an empty feed. **Clear filter · show all** removes the saved key and restores all usage. Provider quotas remain shared. HTTPS or localhost is required for browser hashing. This is a display filter, not authentication; your existing access layer still controls who can open the dashboard.
 
 Antigravity quota bars are restricted to Gemini. Antigravity requests for Claude models still contribute tokens and activity. Public Antigravity data may expose model remaining fraction and reset without identifying five-hour or weekly allowances. The app preserves provider-defined data and labels missing requested windows as unavailable instead of inventing them. See [quota contract](docs/quota-contract.md) and [telemetry contract](docs/telemetry-contract.md).
+
+OpenCode quota comes from `GET https://opencode.ai/zen/go/v1/usage` with each configured key as a backend-only Bearer credential. The rolling, weekly, and monthly API usage percentages are converted to remaining quota for consistency with the other provider cards. A compact **Updated** age appears with the quota heading on each quota-enabled card; stale and partial readings remain explicit.
 
 ## Troubleshooting and verification
 

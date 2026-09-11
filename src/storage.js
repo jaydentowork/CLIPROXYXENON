@@ -84,13 +84,24 @@ export function normalizeProvider(value) {
   return INCLUDED_PROVIDERS.includes(provider) ? provider : null;
 }
 
+function providerName(value) {
+  const text = asText(value);
+  if (!text) return null;
+  const provider = text.toLowerCase();
+  return provider.startsWith('openai-compatible-')
+    ? provider.slice('openai-compatible-'.length)
+    : provider;
+}
+
 // Keeps only whitelisted, non-credential fields. Unknown providers, missing
 // timestamps, and malformed payloads return null so the caller can drop them.
 function normalizeEvent(raw, callers) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const timestampMs = toEpochMs(raw.timestamp ?? raw.time ?? raw.timestamp_ms);
   if (timestampMs === null) return null;
-  const provider = normalizeProvider(raw.provider);
+  const providerSnapshot = asText(raw.auth_provider_snapshot ?? raw.authProviderSnapshot);
+  const provider = normalizeProvider(providerName(raw.provider))
+    ?? normalizeProvider(providerName(providerSnapshot));
   if (!provider) return null;
   const tokenPayload =
     raw.tokens && typeof raw.tokens === 'object' && !Array.isArray(raw.tokens) ? raw.tokens : {};
@@ -98,6 +109,16 @@ function normalizeEvent(raw, callers) {
     typeof raw.tokens === 'number'
       ? asCount(raw.tokens)
       : asCount(tokenPayload.total_tokens ?? tokenPayload.totalTokens ?? raw.total_tokens);
+  const inputTokens = asCount(
+    tokenPayload.input_tokens ?? tokenPayload.inputTokens ?? raw.input_tokens ?? raw.inputTokens,
+  );
+  const outputTokens = asCount(
+    tokenPayload.output_tokens ?? tokenPayload.outputTokens ?? raw.output_tokens ?? raw.outputTokens,
+  );
+  const cachedCandidates = [
+    asCount(tokenPayload.cached_tokens ?? tokenPayload.cachedTokens ?? raw.cached_tokens ?? raw.cachedTokens),
+    asCount(raw.cache_read_tokens ?? raw.cacheReadTokens),
+  ].filter(value => value !== null);
   const failed = raw.failed === true || raw.failed === 'true';
   return {
     timestampMs,
@@ -110,10 +131,12 @@ function normalizeEvent(raw, callers) {
     // Cached and reasoning counts are reported separately; only the source
     // total is summed so overlapping categories are never added twice.
     tokens: totalTokens,
-    inputTokens: asCount(tokenPayload.input_tokens ?? tokenPayload.inputTokens),
-    outputTokens: asCount(tokenPayload.output_tokens ?? tokenPayload.outputTokens),
-    cachedTokens: asCount(tokenPayload.cached_tokens ?? tokenPayload.cachedTokens),
-    reasoningTokens: asCount(tokenPayload.reasoning_tokens ?? tokenPayload.reasoningTokens),
+    inputTokens,
+    outputTokens,
+    cachedTokens: cachedCandidates.length ? Math.max(...cachedCandidates) : null,
+    reasoningTokens: asCount(
+      tokenPayload.reasoning_tokens ?? tokenPayload.reasoningTokens ?? raw.reasoning_tokens ?? raw.reasoningTokens,
+    ),
     // The raw key is reduced to an opaque caller id here and never kept.
     caller: callers.resolve(raw.api_key ?? raw.apiKey),
   };

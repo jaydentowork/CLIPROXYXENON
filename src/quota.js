@@ -6,7 +6,8 @@
 // being guessed into a percentage.
 
 import { managementBase } from './config.js';
-const INCLUDED_PROVIDERS = ['antigravity', 'claude', 'codex'];
+const MANAGEMENT_PROVIDERS = ['antigravity', 'claude', 'codex'];
+const INCLUDED_PROVIDERS = [...MANAGEMENT_PROVIDERS, 'opencode'];
 
 const REQUEST_TIMEOUT_MS = 10000;
 // Spacing between upstream account calls, so a provider is not asked for every
@@ -14,6 +15,7 @@ const REQUEST_TIMEOUT_MS = 10000;
 const DEFAULT_SPACING_MS = 500;
 const MAX_MESSAGE_LENGTH = 200;
 const EXHAUSTED_AT_OR_BELOW = 0;
+const OPENCODE_USAGE_URL = 'https://opencode.ai/zen/go/v1/usage';
 
 // Upstream quota endpoints, as used by the reference implementation.
 const QUOTA_ENDPOINTS = {
@@ -60,6 +62,11 @@ const EXPECTED_WINDOWS = {
   codex: [
     { id: 'primary', label: 'Primary', model: 'all' },
     { id: 'secondary', label: 'Secondary', model: 'all' },
+  ],
+  opencode: [
+    { id: 'rolling', label: 'Rolling', model: 'all' },
+    { id: 'weekly', label: 'Weekly', model: 'all' },
+    { id: 'monthly', label: 'Monthly', model: 'all' },
   ],
 };
 
@@ -129,7 +136,7 @@ function toIso(ms) {
 // Reads a reset instant from whichever spelling the provider uses. Values that
 // only describe a delay are converted against the observation time.
 function resetFrom(record, nowMs) {
-  const absolute = record.resets_at ?? record.resetTime ?? record.reset_time;
+  const absolute = record.resetsAt ?? record.resets_at ?? record.resetTime ?? record.reset_time;
   if (typeof absolute === 'string' && Number.isFinite(Date.parse(absolute))) return Date.parse(absolute);
   const epoch = asNumber(record.reset_at);
   if (epoch !== null && toIso(epoch * 1000)) return epoch * 1000;
@@ -206,6 +213,33 @@ function parseClaudeUsage(payload) {
   };
 }
 
+function parseOpenCodeUsage(payload) {
+  const usage = asRecord(asRecord(payload)?.usage);
+  if (!usage) return { windows: [], note: 'OpenCode usage response was not recognized.' };
+  const windows = [];
+  for (const spec of [
+    { key: 'rolling', id: 'rolling', label: 'Rolling' },
+    { key: 'weekly', id: 'weekly', label: 'Weekly' },
+    { key: 'monthly', id: 'monthly', label: 'Monthly' },
+  ]) {
+    const raw = asRecord(usage[spec.key]);
+    if (!raw) continue;
+    const usedPercent = asNumber(raw.percent);
+    if (usedPercent === null || clampPercent(usedPercent) === null) continue;
+    windows.push({
+      id: spec.id,
+      label: spec.label,
+      model: 'all',
+      remainingPercent: round2(clampPercent(100 - usedPercent)),
+      resetAtMs: resetFrom(raw),
+    });
+  }
+  return {
+    windows,
+    note: windows.length ? '' : 'OpenCode usage response had no recognizable window values.',
+  };
+}
+
 // Explicit public CPAMP summary and available-model shapes. Never infer a
 // window from time until reset, or merge different Gemini models together.
 function parseAntigravityUsage(payload, nowMs) {
@@ -250,6 +284,7 @@ const PARSERS = {
   codex: parseCodexUsage,
   claude: parseClaudeUsage,
   antigravity: parseAntigravityUsage,
+  opencode: parseOpenCodeUsage,
 };
 
 function managementUrl(base, pathname) {
@@ -282,7 +317,7 @@ function headerRetryAfter(header, nowMs) {
 }
 
 function describeAccount(file) {
-  const provider = INCLUDED_PROVIDERS.includes(String(file?.provider ?? '').toLowerCase())
+  const provider = MANAGEMENT_PROVIDERS.includes(String(file?.provider ?? '').toLowerCase())
     ? String(file.provider).toLowerCase()
     : null;
   if (!provider || file.disabled === true) return null;
@@ -344,14 +379,21 @@ export function createQuotaService({
   baseUrl,
   managementKey,
   codexWeights = {},
+  opencodeApiKeys = [],
   intervalMs = 30 * 60 * 1000,
   spacingMs = DEFAULT_SPACING_MS,
   fetchImpl = fetch,
   now = () => Date.now(),
 } = {}) {
-  const configured = Boolean(baseUrl) && Boolean(managementKey);
+  const managementConfigured = Boolean(baseUrl) && Boolean(managementKey);
+  const opencodeAccounts = (Array.isArray(opencodeApiKeys) ? opencodeApiKeys : [])
+    .filter(key => typeof key === 'string' && key.trim())
+    .map((apiKey, index) => ({ provider: 'opencode', key: 'opencode-account-' + index, apiKey }));
+  const configured = managementConfigured || opencodeAccounts.length > 0;
   const states = new Map(INCLUDED_PROVIDERS.map((provider) => [provider, createProviderState(provider)]));
   const accountsByKey = new Map();
+  states.get('opencode').accounts = opencodeAccounts;
+  for (const account of opencodeAccounts) accountsByKey.set(account.key, account);
   const weights = new Map();
   for (const [key, value] of Object.entries(asRecord(codexWeights) ?? {})) {
     const weight = asNumber(value);
@@ -380,6 +422,7 @@ export function createQuotaService({
   }
 
   function pausedUntil(provider) {
+    if (provider === 'opencode') return providerPausedUntilMs.get(provider) ?? 0;
     return Math.max(managementPausedUntilMs, providerPausedUntilMs.get(provider) ?? 0);
   }
 
@@ -494,7 +537,7 @@ export function createQuotaService({
     );
     const files = Array.isArray(body?.files) ? body.files : null;
     if (!files) throw new QuotaError('Account discovery response was not recognized.');
-    const grouped = new Map(INCLUDED_PROVIDERS.map((provider) => [provider, []]));
+    const grouped = new Map(MANAGEMENT_PROVIDERS.map((provider) => [provider, []]));
     for (const file of files) {
       const account = describeAccount(file);
       if (account) grouped.get(account.provider).push(account);
@@ -549,6 +592,33 @@ export function createQuotaService({
     return parsed;
   }
 
+  async function fetchOpenCodeQuota(account) {
+    let response;
+    try {
+      activeAbort = new AbortController();
+      response = await fetchImpl(OPENCODE_USAGE_URL, {
+        method: 'GET',
+        headers: { Authorization: 'Bearer ' + account.apiKey, Accept: 'application/json' },
+        redirect: 'error',
+        signal: AbortSignal.any([activeAbort.signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)]),
+      });
+    } catch {
+      throw new QuotaError('OpenCode quota request failed; check backend connectivity.');
+    }
+    const retryMs = retryAfterMs(response.headers, now());
+    if (retryMs !== null) pauseProvider('opencode', now() + retryMs);
+    if (response.status === 401 || response.status === 403) rejectedAccounts.add(account.key);
+    if (response.status === 429) pauseProvider('opencode', now() + (retryMs ?? 60000));
+    if (!response.ok) throw new QuotaError('OpenCode quota request failed (HTTP ' + response.status + ').');
+    let payload;
+    try {
+      payload = await response.json();
+    } catch {
+      throw new QuotaError('OpenCode quota response was not JSON.');
+    }
+    return PARSERS.opencode(payload, now());
+  }
+
   function applyObservations(state, account, parsed) {
     // Omitted/unrecognized windows must not keep an old observation marked fresh.
     markAccountStale(state, account, 'Quota window was not reported in the latest response.');
@@ -580,33 +650,30 @@ export function createQuotaService({
     }
   }
 
-  async function runCycle() {
+  async function refreshManagement() {
+    if (!managementConfigured || now() < managementPausedUntilMs) return;
     let grouped;
     try {
       grouped = await discoverAccounts();
     } catch (error) {
       const message = clean(error instanceof Error ? error.message : error);
-      if (error?.fatal) {
-        fatalMessage = message;
-        stop();
-      }
-      for (const state of states.values()) markProviderStale(state, message);
-      return snapshot();
+      if (error?.fatal) fatalMessage = message;
+      for (const provider of MANAGEMENT_PROVIDERS) markProviderStale(states.get(provider), message);
+      return;
     }
 
-    fatalMessage = '';
-    const discoveredKeys = new Set();
-    for (const provider of INCLUDED_PROVIDERS) {
+    const discoveredKeys = new Set(opencodeAccounts.map((account) => account.key));
+    for (const provider of MANAGEMENT_PROVIDERS) {
       for (const account of grouped.get(provider)) discoveredKeys.add(account.key);
     }
     for (const key of [...accountsByKey.keys()]) {
       if (!discoveredKeys.has(key)) accountsByKey.delete(key);
     }
-    for (const provider of INCLUDED_PROVIDERS) {
+    for (const provider of MANAGEMENT_PROVIDERS) {
       for (const account of grouped.get(provider)) accountsByKey.set(account.key, account);
     }
 
-    for (const provider of INCLUDED_PROVIDERS) {
+    for (const provider of MANAGEMENT_PROVIDERS) {
       const state = states.get(provider);
       const accounts = grouped.get(provider);
       state.accounts = accounts;
@@ -639,8 +706,7 @@ export function createQuotaService({
           if (error?.fatal) {
             fatalMessage = clean(error.message);
             markProviderStale(state, fatalMessage);
-            stop();
-            return snapshot();
+            return;
           }
           failures += 1;
           markAccountStale(state, account, clean(error instanceof Error ? error.message : error));
@@ -650,17 +716,58 @@ export function createQuotaService({
         state.message = `${failures} of ${accounts.length} accounts failed to refresh.`;
       }
     }
+  }
+
+  async function refreshOpenCode() {
+    const state = states.get('opencode');
+    state.accounts = opencodeAccounts;
+    state.message = opencodeAccounts.length ? '' : 'OPENCODE_APIKEY is not configured.';
+    const activeKeys = new Set(opencodeAccounts.map((account) => account.key));
+    for (const window of state.windows.values()) {
+      for (const key of [...window.observations.keys()]) {
+        if (!activeKeys.has(key)) window.observations.delete(key);
+      }
+    }
+    for (const key of [...state.notes.keys()]) {
+      if (!activeKeys.has(key)) state.notes.delete(key);
+    }
+
+    let failures = 0;
+    for (const account of opencodeAccounts) {
+      if (rejectedAccounts.has(account.key) || now() < pausedUntil('opencode')) {
+        failures += 1;
+        markAccountStale(state, account, rejectedAccounts.has(account.key)
+          ? 'OpenCode rejected account authentication; refresh paused until service restart.'
+          : 'Quota refresh paused to respect upstream throttling.');
+        continue;
+      }
+      await spaceRequests();
+      try {
+        applyObservations(state, account, await fetchOpenCodeQuota(account));
+      } catch (error) {
+        failures += 1;
+        markAccountStale(state, account, clean(error instanceof Error ? error.message : error));
+      }
+    }
+    if (failures > 0) {
+      state.message = failures + ' of ' + opencodeAccounts.length + ' accounts failed to refresh.';
+    }
+  }
+
+  async function runCycle() {
+    fatalMessage = '';
+    await refreshManagement();
+    await refreshOpenCode();
+    if (fatalMessage) stop();
     return snapshot();
   }
 
   function refresh() {
     if (stopped) return Promise.resolve(snapshot());
     if (inFlight) return inFlight;
-    if (now() < managementPausedUntilMs) return Promise.resolve(snapshot());
-    if (!configured) {
-      for (const state of states.values()) state.message = 'Management API is not configured.';
-      return Promise.resolve(snapshot());
-    }
+    if (!managementConfigured) for (const provider of MANAGEMENT_PROVIDERS) states.get(provider).message = 'Management API is not configured.';
+    if (!opencodeAccounts.length) states.get('opencode').message = 'OPENCODE_APIKEY is not configured.';
+    if (!configured) return Promise.resolve(snapshot());
     inFlight = runCycle()
       .catch((error) => {
         const message = clean(error instanceof Error ? error.message : error);
@@ -676,10 +783,9 @@ export function createQuotaService({
   function start() {
     if (started) return;
     started = true;
-    if (!configured) {
-      for (const state of states.values()) state.message = 'Management API is not configured.';
-      return;
-    }
+    if (!managementConfigured) for (const provider of MANAGEMENT_PROVIDERS) states.get(provider).message = 'Management API is not configured.';
+    if (!opencodeAccounts.length) states.get('opencode').message = 'OPENCODE_APIKEY is not configured.';
+    if (!configured) return;
     refresh();
     timer = setInterval(() => {
       refresh();
@@ -695,7 +801,7 @@ export function createQuotaService({
       timer = null;
     }
     if (fatalMessage) {
-      for (const state of states.values()) markProviderStale(state, fatalMessage);
+      for (const provider of MANAGEMENT_PROVIDERS) markProviderStale(states.get(provider), fatalMessage);
     }
   }
 

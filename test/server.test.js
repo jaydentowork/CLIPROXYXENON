@@ -19,6 +19,7 @@ test('config validates weights and RESP and demo isolates credentials and persis
   assert.throws(() => readConfig({ API_KEY_ALIASES: '["sk"]' }, []));
   assert.throws(() => readConfig({ API_KEY_ALIASES: '{"sk-a":"Same","sk-b":"Same"}' }, []));
   assert.throws(() => readConfig({ CODEX_ACCOUNT_WEIGHTS: '{"id":1}' }, []));
+  assert.deepEqual(readConfig({ OPENCODE_APIKEY: ' key1, key2,key1 ' }, []).opencodeApiKeys, ['key1', 'key2']);
   assert.throws(() => readConfig({ CLIPROXYAPI_RESP_URL: 'https://proxy.example.com' }, []));
   assert.throws(() => readConfig({ CLIPROXYAPI_RESP_URL: 'redis://secret@example.com' }, []));
   assert.throws(() => readConfig({ PORT: '-1' }, []));
@@ -51,6 +52,7 @@ test('HTTP demo provides period totals with current feed and read-only safe rout
   assert.ok(week.totals.codex.tokens > today.totals.codex.tokens);
   assert.equal(today.recent[0].model, week.recent[0].model);
   assert.equal(today.recent.length, 30);
+  assert.deepEqual(today.quota.opencode.windows.map(window => window.id), ['rolling', 'weekly', 'monthly']);
   assert.equal(todayResponse.headers.get('cache-control'), 'no-store');
   assert.equal((await fetch(`${base}/api/dashboard?period=year`)).status, 400);
   assert.equal((await fetch(`${base}/.env`)).status, 404);

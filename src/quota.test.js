@@ -39,6 +39,16 @@ function claudePayload(utilization) {
   };
 }
 
+function opencodePayload({ rolling, weekly, monthly }) {
+  return {
+    usage: {
+      rolling: { status: 'ok', percent: rolling, resetsAt: '2026-09-11T06:40:33.359Z' },
+      weekly: { status: 'ok', percent: weekly, resetsAt: '2026-09-14T00:00:00.359Z' },
+      monthly: { status: 'ok', percent: monthly, resetsAt: '2026-10-10T20:19:31.359Z' },
+    },
+  };
+}
+
 function antigravityPayload() {
   return {
     groups: [
@@ -111,6 +121,64 @@ test('weights Codex accounts by stable identifier', async () => {
   assert.equal(stub.calls.apiCall, 2);
   const headers = stub.calls.bodies[0].header;
   assert.equal(headers.Authorization, 'Bearer $TOKEN$');
+});
+
+test('fetches OpenCode directly for every key and equal-weights its three windows', async () => {
+  const keys = ['opencode-secret-one', 'opencode-secret-two'];
+  const calls = [];
+  const quota = service({
+    baseUrl: null,
+    managementKey: '',
+    opencodeApiKeys: keys,
+    fetchImpl: async (url, init = {}) => {
+      calls.push({ url: String(url), init });
+      const second = init.headers.Authorization.endsWith(keys[1]);
+      return jsonResponse(second
+        ? opencodePayload({ rolling: 80, weekly: 30, monthly: 50 })
+        : opencodePayload({ rolling: 20, weekly: 10, monthly: 50 }));
+    },
+  });
+
+  await quota.refresh();
+  const snapshot = quota.snapshot();
+  assert.equal(calls.length, 2);
+  assert.equal(calls.every(call => call.url === 'https://opencode.ai/zen/go/v1/usage'), true);
+  assert.deepEqual(calls.map(call => call.init.headers.Authorization), [
+    'Bearer opencode-secret-one',
+    'Bearer opencode-secret-two',
+  ]);
+  assert.equal(snapshot.opencode.accounts, 2);
+  assert.equal(snapshot.opencode.observedAccounts, 2);
+  assert.match(snapshot.antigravity.message, /Management API is not configured/);
+  assert.equal(snapshot.opencode.windows.find(window => window.id === 'rolling').remainingPercent, 50);
+  assert.equal(snapshot.opencode.windows.find(window => window.id === 'weekly').remainingPercent, 80);
+  assert.equal(snapshot.opencode.windows.find(window => window.id === 'monthly').remainingPercent, 50);
+  assert.equal(snapshot.opencode.windows.find(window => window.id === 'rolling').nextResetAt, '2026-09-11T06:40:33.359Z');
+  assert.equal(JSON.stringify(snapshot).includes('opencode-secret'), false);
+});
+
+test('reports OpenCode partial coverage without leaking a failed key', async () => {
+  const keys = ['opencode-visible-one', 'opencode-sensitive-failure'];
+  let call = 0;
+  const quota = service({
+    baseUrl: null,
+    managementKey: '',
+    opencodeApiKeys: keys,
+    fetchImpl: async () => {
+      call += 1;
+      if (call === 2) throw new Error('request failed for ' + keys[1]);
+      return jsonResponse(opencodePayload({ rolling: 15, weekly: 6, monthly: 3 }));
+    },
+  });
+
+  await quota.refresh();
+  const snapshot = quota.snapshot();
+  const rolling = snapshot.opencode.windows.find(window => window.id === 'rolling');
+  assert.equal(rolling.remainingPercent, 85);
+  assert.equal(rolling.observedAccounts, 1);
+  assert.equal(rolling.totalAccounts, 2);
+  assert.equal(snapshot.opencode.message, '1 of 2 accounts failed to refresh.');
+  assert.equal(JSON.stringify(snapshot).includes('sensitive-failure'), false);
 });
 
 test('reports exhausted accounts and provider coverage', async () => {

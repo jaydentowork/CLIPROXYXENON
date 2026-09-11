@@ -8,23 +8,29 @@ The management HTTP base is normalized once. `GET /auth-files` returns `files`; 
 
 Quota calls use `POST /api-call` with `{auth_index, method, url, header, data?}`. Header values contain the literal `$TOKEN$` placeholder, which the proxy resolves. The result's `status_code` is the upstream status; the outer HTTP status belongs to management. The browser cannot invoke this forwarding endpoint.
 
+OpenCode is separate from management discovery. `OPENCODE_APIKEY` accepts one or
+more comma-separated keys; the backend queries each key directly and never sends
+the key or account identifiers to the browser.
+
 | Provider | Upstream request | Normalized readings |
 | --- | --- | --- |
 | Codex | GET `https://chatgpt.com/backend-api/wham/usage`; Bearer `$TOKEN$`, JSON content type, reference Codex user agent; `chatgpt-account-id` when exposed in account metadata | `rate_limit.primary_window` / `secondary_window`: remaining = 100 − `used_percent`, exact `limit_window_seconds`, `reset_at` Unix seconds or `reset_after_seconds`. Code-review and named additional limits retain separate scopes. |
 | Claude | GET `https://api.anthropic.com/api/oauth/usage`; Bearer `$TOKEN$`, `anthropic-beta: oauth-2025-04-20` | `five_hour`, `seven_day` and explicit OAuth-app/Opus/Sonnet/Cowork weekly windows: remaining = 100 − `utilization`, `resets_at` ISO instant. |
 | Antigravity | POST `https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary`; reference Antigravity headers, `data` string containing `{project: projectId}` | Explicit Gemini `groups[].buckets[]`: `remainingFraction`, `window`, `bucketId`, `resetTime` (documented snake-case aliases also accepted). `models[modelId].quotaInfo` fallback retains each Gemini model's remaining fraction and provider reset window separately. |
+| OpenCode | GET `https://opencode.ai/zen/go/v1/usage`; Bearer `OPENCODE_APIKEY` | `usage.rolling`, `usage.weekly`, and `usage.monthly`: remaining = 100 − `percent`, `status`, and `resetsAt` ISO instant. Each configured key is a separate equal-weighted account. |
 
 Antigravity `project_id` must be available in the account's top-level, metadata, or attributes fields. Missing project metadata is reported; this app does not download raw authentication files, guess a project ID, or silently fall back through multiple endpoints. The public reference also knows `fetchAvailableModels`; support for a models-shaped response does not claim this endpoint was called or validated here. Non-Gemini quota groups are excluded. Model reset data does not imply a five-hour or weekly allowance. Before any recognizable readings, expected windows remain Unknown with an explanatory message. Once provider windows have been observed, empty placeholders are omitted while previously observed windows remain visible, including stale readings. Missing five-hour/weekly identification is explained in the quota message. Equal Antigravity weights apply only within the same reported model/group and window.
 
 ## Aggregation and failures
 
 - Remaining quota is `sum(weight × remainingPercent) / sum(weight)` for comparable, observed, mapped accounts. x5 at 80% plus x20 at 20% yields **32%**. Token/request totals are never weighted.
+- OpenCode accounts use weight 1. A rolling, weekly, or monthly window is averaged across every key that successfully reported that window.
 - Never-observed windows and unmapped Codex accounts do not enter the denominator. Coverage remains visible. Invalid percentages/fractions are rejected rather than clipped to zero/full.
 - Differing Codex window durations and model scopes have different IDs. Explicit Antigravity models are kept separate. Distinct groups are not reduced to a synthetic most-constrained model.
 - An exhausted account has an observed matching window at 0%; the provider summary counts its identifier once even if multiple windows are exhausted. Unmapped/unknown accounts do not count as exhausted.
 - A failed or omitted window retains its last success, marked stale. Aggregate observation time is the oldest contributing reading. Readings also age into stale after two refresh intervals. Resets show the earliest **next account reset** and the latest reset; they do not promise a simultaneous pool reset.
 - One backend schedule refreshes immediately on startup, then every 30 minutes with a shared in-flight promise and 10-second request timeout. Upstream account calls within a cycle are spaced by 500ms so a provider is not asked for every account at once. Slow cycles skip overlapping ticks. There is no extra poller per browser.
-- Outer management 401/403 stops automatic polling until service restart. Upstream account 401/403 pauses that account until restart. Both 429 kinds honor `Retry-After` (seconds or HTTP date) with a 60-second fallback: a management 429 pauses every provider, while an upstream envelope 429 pauses only the provider that reported it, leaving the others to refresh in the same cycle. Values remain stale during backoff.
+- Outer management 401/403 stops automatic management polling until service restart. Upstream account and direct OpenCode 401/403 pause that account until restart. All 429 kinds honor `Retry-After` (seconds or HTTP date) with a 60-second fallback: a management 429 pauses management providers, while an upstream envelope or direct OpenCode 429 pauses only the provider that reported it, leaving the others to refresh in the same cycle. Values remain stale during backoff.
 - Snapshots omit account metadata, IDs, credentials, and raw upstream error bodies. Transport exceptions become fixed diagnostic messages. Quota cache is in memory: after backend restart readings start Unknown until successful refresh; request history persists independently.
 
 ## Sources

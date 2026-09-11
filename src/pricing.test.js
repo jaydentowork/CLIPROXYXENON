@@ -39,6 +39,14 @@ test('MiMo uses the supplied USD prices and subtracts cached input once', () => 
   assert.equal(priceFor('mimo-v2.5-prototype'), null);
 });
 
+test('deepseek-flash uses the supplied peak-hour prices', () => {
+  assert.deepEqual(priceFor('deepseek-flash'), { input: 0.3, cached: 0.006, output: 1.2 });
+  assert.deepEqual(priceFor('opencode/deepseek-flash'), { input: 0.3, cached: 0.006, output: 1.2 });
+  const usage = { inputTokens: 1000000, outputTokens: 1000000, cachedTokens: 100000 };
+  assert.ok(Math.abs(estimateCost({ ...usage, model: 'deepseek-flash' }) - 1.4706) < 1e-10);
+  assert.equal(priceFor('deepseek-flash-off-peak'), null);
+});
+
 test('OpenRouter startup catalog matches names and applies per-token rates, tiers, and MiMo overrides', async t => {
   t.after(() => setPricingCatalog({ data: [] }));
   const catalog = { data: [

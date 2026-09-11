@@ -12,6 +12,11 @@ export function managementBase(value) {
   return url.href.replace(/\/$/, '');
 }
 
+function parseOpenCodeApiKeys(value) {
+  if (!value) return [];
+  return [...new Set(String(value).split(',').map(key => key.trim()).filter(Boolean))];
+}
+
 export function readConfig(env = process.env, argv = process.argv) {
   const demo = argv.includes('--demo');
   const port = Number(env.PORT || 8787);
@@ -38,6 +43,7 @@ export function readConfig(env = process.env, argv = process.argv) {
     managementKey: env.MANAGEMENT_KEY || '',
     respUrl, respPassword: env.CLIPROXYAPI_RESP_PASSWORD || env.MANAGEMENT_KEY || '',
     codexWeights, dataPath: resolve(env.DATA_PATH || 'data/dashboard.sqlite'),
+    opencodeApiKeys: parseOpenCodeApiKeys(env.OPENCODE_APIKEY),
     apiKeyAliases: parseApiKeyAliases(env.API_KEY_ALIASES),
   };
 }

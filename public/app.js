@@ -2,7 +2,7 @@ const PROVIDERS = [
   { id: 'antigravity', name: 'Antigravity' },
   { id: 'claude', name: 'Claude' },
   { id: 'codex', name: 'Codex' },
-  { id: 'opencode', name: 'OpenCode', usageOnly: true },
+  { id: 'opencode', name: 'OpenCode' },
   { id: 'mimo', name: 'Mimo', usageOnly: true },
 ];
 
@@ -38,7 +38,6 @@ const costFormat = new Intl.NumberFormat('en-US', { style: 'currency', currency:
 const dom = {
   tracking: document.getElementById('tracking'),
   updated: document.getElementById('updated'),
-  gaps: document.getElementById('gaps'),
   collector: document.getElementById('collector'),
   collectorText: document.getElementById('collector-text'),
   banner: document.getElementById('banner'),
@@ -327,7 +326,9 @@ function buildCard({ id, name }, slot) {
     stats[key] = { value, label, stat };
   }
   const windows = el('div', 'windows');
-  const windowsHead = el('div', 'windows-head', 'Remaining quota');
+  const windowsHead = el('div', 'windows-head');
+  const quotaUpdated = el('span', 'quota-updated');
+  windowsHead.append(el('span', null, 'Remaining quota'), quotaUpdated);
   const note = el('p', 'note');
   note.hidden = true;
   front.append(head, totals, details, windowsHead, windows, note);
@@ -346,7 +347,7 @@ function buildCard({ id, name }, slot) {
   const choices = el('div', 'provider-choices');
   const options = new Map();
   const record = { card, front, picker, heading, changeButton, options, slot, providerId: id,
-    periodLabel, stats, totals, details, windowsHead, windows, note, windowIds: '', windowNodes: new Map() };
+    periodLabel, stats, totals, details, windowsHead, quotaUpdated, windows, note, windowIds: '', windowNodes: new Map() };
   for (const provider of PROVIDERS) {
     const button = el('button', 'provider-choice', provider.name);
     button.type = 'button';
@@ -517,6 +518,11 @@ function renderProviders(payload) {
       const node = card.windowNodes.get(String(entry.id ?? entry.label));
       if (node) updateWindow(node, entry);
     }
+    const updatedTimes = windows.map(entry => parseTime(entry.observedAt)).filter(value => value !== null);
+    const updatedAt = updatedTimes.length ? Math.min(...updatedTimes) : null;
+    const age = ageText(updatedAt);
+    card.quotaUpdated.textContent = windows.length ? (age ? 'Updated ' + age : 'Awaiting first reading') : '';
+    card.quotaUpdated.title = updatedAt === null ? '' : 'Quota read ' + stampFormat.format(updatedAt);
 
     const message = payload !== null && !pendingPeriod && !Object.hasOwn(payload.totals ?? {}, id)
       ? (usageOnly ? 'Usage data are not available for this provider from this connection.' : 'Usage and quota data are not available for this provider from this connection.')
@@ -615,19 +621,6 @@ function renderHeader() {
   } else {
     const generated = parseTime(view?.generatedAt);
     dom.updated.textContent = generated === null ? 'Waiting for the first reading' : `Updated ${clockFormat.format(generated)}`;
-  }
-
-  const gaps = Array.isArray(view?.gaps) ? view.gaps.slice() : [];
-  gaps.sort((a, b) => (parseTime(b?.startedAt) ?? 0) - (parseTime(a?.startedAt) ?? 0));
-  const gap = gaps[0];
-  const gapStart = parseTime(gap?.startedAt);
-  if (gap && gapStart !== null) {
-    const end = parseTime(gap?.endedAt);
-    const when = end === null ? `since ${shortTime(gapStart)}` : `${shortTime(gapStart)}-${shortTime(end)}`;
-    dom.gaps.textContent = `Collection gap ${when}${gap.reason ? ` (${gap.reason})` : ''}`;
-    dom.gaps.hidden = false;
-  } else {
-    dom.gaps.hidden = true;
   }
 
   const collector = view?.collector ?? null;
