@@ -203,7 +203,7 @@ export function createStore({ path, now = () => Date.now(), apiKeyAliases = [] }
     GROUP BY provider
   `);
   const selectUsage = db.prepare(
-    'SELECT provider, model, input_tokens, output_tokens, cached_tokens FROM events '
+    'SELECT provider, model, tokens, input_tokens, output_tokens, cached_tokens FROM events '
     + 'WHERE timestamp_ms >= ? AND timestamp_ms <= ? AND (? IS NULL OR caller = ?)'
   );
   const selectRecent = db.prepare(`
@@ -290,6 +290,7 @@ export function createStore({ path, now = () => Date.now(), apiKeyAliases = [] }
         costUsd: null,
       };
     }
+    const modelsByProvider = new Map(INCLUDED_PROVIDERS.map(provider => [provider, new Map()]));
     // Apply context-length pricing to each request before summing.
     for (const row of selectUsage.iterate(startMs, nowMs, filter, filter)) {
       const totalsRow = totals[row.provider];
@@ -297,6 +298,22 @@ export function createStore({ path, now = () => Date.now(), apiKeyAliases = [] }
       const usd = estimateCost({ model: row.model, provider: row.provider, inputTokens: row.input_tokens,
         outputTokens: row.output_tokens, cachedTokens: row.cached_tokens });
       if (usd !== null) totalsRow.costUsd = (totalsRow.costUsd ?? 0) + usd;
+      const models = modelsByProvider.get(row.provider);
+      let model = models.get(row.model);
+      if (!model) {
+        model = { model: row.model, requests: 0, tokens: null, costUsd: null, pricedRequests: 0 };
+        models.set(row.model, model);
+      }
+      model.requests += 1;
+      if (row.tokens !== null) model.tokens = (model.tokens ?? 0) + Number(row.tokens);
+      if (usd !== null) {
+        model.costUsd = (model.costUsd ?? 0) + usd;
+        model.pricedRequests += 1;
+      }
+    }
+    for (const [provider, models] of modelsByProvider) {
+      totals[provider].models = [...models.values()].sort((a, b) =>
+        (b.tokens ?? -1) - (a.tokens ?? -1) || (a.model ?? '').localeCompare(b.model ?? ''));
     }
     const recent = selectRecent.all(filter, filter, RECENT_LIMIT).map((row) => ({
       id: Number(row.id),

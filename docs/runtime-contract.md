@@ -13,7 +13,7 @@ Use Node >=24.2, ESM, built-in modules, no runtime dependencies. Provider IDs: `
 
 ## Storage and collector
 
-`src/storage.js`: export `createStore({path, now = () => Date.now()})`, returning `ingest(raw)` (validate/sanitize/filter telemetry), `snapshot(period)` returning `{trackingSince, totals, recent, gaps}`, `recordGap({startedAt, endedAt, reason})`, `cleanup()`, `close()`. `totals` is an object keyed by provider, each `{requests, tokens, inputTokens, outputTokens, cachedTokens, reasoningTokens, costUsd}`. Recent is newest first, at most 30, each `{id, timestamp, provider, account, model, requestId, outcome, durationMs, tokens, inputTokens, outputTokens, cachedTokens, costUsd}`. `costUsd` is an estimate from `src/pricing.js` list prices and is null for unpriced models; IDs are local unique IDs. Gaps use ISO timestamps. Source request IDs are correlation only, never unique. `src/collector.js`: export `startCollector({url, password, store, onStatus})` returning `{stop()}`. Status is `{state, since, lastEventAt, message}`; states collecting/disconnected/error/unconfigured. RESP URL is separate from HTTP URL. Use only AUTH and SUBSCRIBE usage; no destructive reads or generic Redis handshake. Sanitize all errors.
+`src/storage.js`: export `createStore({path, now = () => Date.now()})`, returning `ingest(raw)` (validate/sanitize/filter telemetry), `snapshot(period)` returning `{trackingSince, totals, recent, gaps}`, `recordGap({startedAt, endedAt, reason})`, `cleanup()`, `close()`. `totals` is an object keyed by provider, each `{requests, tokens, inputTokens, outputTokens, cachedTokens, reasoningTokens, costUsd, models}`. Recent is newest first, at most 30, each `{id, timestamp, provider, account, model, requestId, outcome, durationMs, tokens, inputTokens, outputTokens, cachedTokens, costUsd}`. `costUsd` is an estimate from `src/pricing.js` list prices and is null for unpriced models; IDs are local unique IDs. Gaps use ISO timestamps. Source request IDs are correlation only, never unique. `src/collector.js`: export `startCollector({url, password, store, onStatus})` returning `{stop()}`. Status is `{state, since, lastEventAt, message}`; states collecting/disconnected/error/unconfigured. RESP URL is separate from HTTP URL. Use only AUTH and SUBSCRIBE usage; no destructive reads or generic Redis handshake. Sanitize all errors.
 
 ## Quota
 
@@ -47,3 +47,18 @@ Pricing matches these exact model ids, with optional vendor prefixes. Cached
 input is removed from the regular input count before pricing. OpenCode otherwise uses the startup OpenRouter catalog and name matching. These exact rates override catalog prices. Unsupported models remain unpriced.
 
 The password field saves the raw API key in browser localStorage only and hashes it before the first request. Clearing removes the saved key. Quota remains provider-wide; this is not an authentication boundary. Pricing loads from the public OpenRouter model catalog during normal CLI startup, with an eight-second timeout and built-in fallback. Provider cost totals sum per-request estimates so context-length tiers are applied correctly. Claude native input is priced separately from cached reads.
+
+
+## Per-model usage breakdown
+Each provider total includes `models`, an array of
+`{model, requests, tokens, costUsd, pricedRequests}`. It uses the same Central-time
+period and caller filter as provider totals, covers the full stored period, and
+sorts by reported token count descending, then model name. Missing model names
+are null. Tokens are null if no request in the group reports a total token count;
+otherwise they sum reported totals. Empty history produces an empty array.
+
+Costs are estimated per request before grouping, preserving context-length tiers
+and provider-specific cache accounting. `costUsd` is null when no request can be
+priced; `pricedRequests` identifies partial coverage. The UI shows unpriced models
+as n/a and labels partial estimates. Token shares use the displayed provider's
+reported token total; they are not a measure of remaining quota.

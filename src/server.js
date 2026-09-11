@@ -11,6 +11,7 @@ const staticFiles = {
   '/index.html': ['index.html', 'text/html; charset=utf-8'],
   '/app.js': ['app.js', 'text/javascript; charset=utf-8'],
   '/style.css': ['style.css', 'text/css; charset=utf-8'],
+  '/1.png': ['1.png', 'image/png'],
 };
 // Dev-only allowance so impeccable live mode can load. Guarded by NODE_ENV.
 const liveDev = process.env.NODE_ENV === 'development';

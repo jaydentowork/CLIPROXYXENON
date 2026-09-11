@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join, dirname, resolve } from 'node:path';
 
 import { createStore } from './storage.js';
+import { callerId } from './callers.js';
 import { setPricingCatalog } from './pricing.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -189,6 +190,7 @@ test('period totals use Central time boundaries', (t) => {
   assert.deepEqual(store.snapshot('today').totals.codex, {
     requests: 1,
     tokens: 300,
+    models: [{ model: 'gpt-5.4', requests: 1, tokens: 300, costUsd: null, pricedRequests: 0 }],
     inputTokens: 0,
     outputTokens: 0,
     cachedTokens: 0,
@@ -198,6 +200,7 @@ test('period totals use Central time boundaries', (t) => {
   assert.deepEqual(store.snapshot('today').totals.claude, {
     requests: 1,
     tokens: 30,
+    models: [{ model: 'gpt-5.4', requests: 1, tokens: 30, costUsd: (10 * 2.5 + 20 * 15) / 1e6, pricedRequests: 1 }],
     inputTokens: 10,
     outputTokens: 20,
     cachedTokens: 0,
@@ -360,6 +363,39 @@ test('cost totals sum request-specific context tiers and native Claude cached in
   const snapshot = store.snapshot();
   assert.ok(Math.abs(snapshot.totals.codex.costUsd - 0.0004) < 1e-12);
   assert.equal(snapshot.totals.claude.costUsd, 0.00152);
+  assert.equal(snapshot.totals.codex.models[0].requests, 3);
+  assert.equal(snapshot.totals.codex.models[0].costUsd, snapshot.totals.codex.costUsd);
+  assert.equal(snapshot.totals.claude.models[0].costUsd, 0.00152);
   assert.ok(Math.abs(snapshot.recent.filter(row => row.provider === 'codex').reduce((sum, row) => sum + row.costUsd, 0) - snapshot.totals.codex.costUsd) < 1e-12);
   assert.equal(snapshot.recent.find(row => row.provider === 'claude').costUsd, snapshot.totals.claude.costUsd);
+});
+
+
+test('model aggregates cover full period, isolate callers and preserve unknown pricing', t => {
+  const store = createStore({ path: ':memory:', now: () => Date.parse('2026-09-10T18:30:00Z') });
+  t.after(() => store.close());
+  for (let i = 0; i < 35; i++) store.ingest(usageEvent({ model: 'gpt-5.4', request_id: 'model-' + i }));
+  store.ingest(usageEvent({ model: 'unpriced-example', tokens: 2000 }));
+  store.ingest(usageEvent({ model: null, alias: null, tokens: null }));
+  store.ingest(usageEvent({ model: 'gpt-5.4', tokens: { total_tokens: 100 } }));
+  store.ingest(usageEvent({ model: 'other-caller', api_key: 'sk-another-test-key', tokens: 500 }));
+  store.ingest(usageEvent({ model: 'gpt-5.4', provider: 'claude' }));
+  store.ingest(usageEvent({ model: 'earlier-week', timestamp: '2026-09-08T18:00:00Z', tokens: 6000 }));
+  store.ingest(usageEvent({ model: 'future', timestamp: '2026-09-11T18:00:00Z' }));
+  const all = store.snapshot('today');
+  assert.equal(all.recent.length, 30);
+  const total = all.totals.codex;
+  assert.deepEqual(total.models.map(row => row.model), ['unpriced-example', 'gpt-5.4', 'other-caller', null]);
+  assert.equal(total.models.find(row => row.model === 'gpt-5.4').requests, 36);
+  assert.equal(total.models.find(row => row.model === 'gpt-5.4').pricedRequests, 35);
+  assert.equal(total.models.find(row => row.model === null).tokens, null);
+  assert.equal(total.models[0].costUsd, null);
+  assert.equal(total.models.reduce((sum, row) => sum + (row.tokens ?? 0), 0), total.tokens);
+  assert.equal(total.models.reduce((sum, row) => sum + row.requests, 0), total.requests);
+  assert.ok(Math.abs(total.models.reduce((sum, row) => sum + (row.costUsd ?? 0), 0) - total.costUsd) < 1e-12);
+  const scoped = store.snapshot('today', callerId('sk-secret-value')).totals.codex;
+  assert.equal(scoped.models.some(row => row.model === 'other-caller'), false);
+  assert.equal(scoped.models.find(row => row.model === 'gpt-5.4').requests, 36);
+  assert.equal(store.snapshot('week', callerId('sk-secret-value')).totals.codex.models[0].model, 'earlier-week');
+  assert.deepEqual(store.snapshot('today', 'unknown-caller').totals.codex.models, []);
 });

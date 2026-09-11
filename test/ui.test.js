@@ -252,3 +252,88 @@ test('Claude cache hit uses total prompt size when native input excludes cache r
   const front = ui.nodes.get('providers').children[1].children[0];
   assert.equal(front.children[1].children[2].children[0].textContent, '90%');
 });
+
+
+test('model rows show token share, unpriced and partial estimates without rebuilding unchanged lists', async () => {
+  const ui = browserFixture();
+  const payload = demoSnapshot('today');
+  payload.totals.antigravity.tokens = 1000;
+  payload.totals.antigravity.models = [
+    { model: 'specific-model', tokens: 900, requests: 3, costUsd: 1.25, pricedRequests: 2 },
+    { model: 'unpriced-model', tokens: 100, requests: 1, costUsd: null, pricedRequests: 0 },
+    { model: null, tokens: null, requests: 1, costUsd: null, pricedRequests: 0 },
+  ];
+  await ui.respond(0, payload);
+  const section = ui.nodes.get('providers').children[0].children[0].children[6];
+  const body = section.children[0].children[1];
+  const first = body.children[0];
+  assert.equal(first.children[0].textContent, 'specific-model');
+  assert.equal(first.children[1].children[0].textContent, '900');
+  assert.equal(first.children[1].children[1].textContent, '90%');
+  assert.equal(first.children[2].textContent, '$1.25');
+  assert.equal(first.children[2].children[0].textContent, 'partial');
+  assert.equal(body.children[1].children[2].textContent, 'n/a');
+  assert.equal(body.children[2].children[0].textContent, 'Unknown model');
+  assert.equal(body.children[2].children[1].children[0].textContent, 'n/a');
+  section.scrollTop = 48;
+  [...ui.timers.values()].at(-1).fn();
+  await ui.respond(1, payload);
+  assert.equal(body.children[0], first);
+  assert.equal(section.scrollTop, 48);
+  [...ui.timers.values()].at(-1).fn();
+  payload.totals.antigravity.models[0].costUsd = 1.5;
+  await ui.respond(2, payload);
+  assert.equal(body.children[0].children[2].textContent, '$1.50');
+  assert.equal(section.scrollTop, 48);
+});
+
+test('model breakdown keeps the displayed period while loading and resets for a new provider', async () => {
+  const ui = browserFixture();
+  await ui.respond(0, demoSnapshot('today'));
+  const slot = ui.nodes.get('providers').children[0];
+  const section = slot.children[0].children[6];
+  const body = section.children[0].children[1];
+  const first = body.children[0];
+  ui.buttons[1].listeners.click();
+  assert.equal(body.children[0], first);
+  assert.match(section.attributes['aria-label'], /today/);
+  slot.children[1].children[2].children[4].listeners.click();
+  assert.equal(body.children.length, 0);
+  assert.equal(section.children[0].hidden, true);
+  assert.match(section.children[1].textContent, /Awaiting/);
+  const week = demoSnapshot('week');
+  await ui.respond(1, week);
+  assert.equal(body.children[0].children[0].textContent, 'mimo-v2.5-pro');
+  assert.match(section.attributes['aria-label'], /this week/);
+  assert.equal(section.scrollTop, 0);
+});
+
+test('model breakdown clears immediately when changing the API key and distinguishes empty history', async () => {
+  const ui = browserFixture();
+  await ui.respond(0, demoSnapshot('today'));
+  const section = ui.nodes.get('providers').children[0].children[0].children[6];
+  const body = section.children[0].children[1];
+  assert.ok(body.children.length > 0);
+  ui.nodes.get('api-key').value = 'sk-model-filter-test';
+  await ui.nodes.get('apply-key').listeners.click();
+  assert.equal(body.children.length, 0);
+  assert.match(section.children[1].textContent, /Awaiting/);
+  const filter = callerId('sk-model-filter-test');
+  await ui.respond(1, demoSnapshot('today', Date.now(), filter));
+  assert.equal(body.children.length, 0);
+  assert.match(section.children[1].textContent, /No model usage for this API key/);
+});
+
+test('demo model splits reconcile with provider totals for every reporting period and caller', () => {
+  for (const period of ['today', 'week', 'month']) {
+    for (const caller of [null, 'demo-desk', 'demo-laptop', 'unknown']) {
+      const snapshot = demoSnapshot(period, Date.now(), caller);
+      for (const total of Object.values(snapshot.totals)) {
+        assert.equal(total.models.reduce((sum, row) => sum + row.tokens, 0), total.tokens);
+        assert.equal(total.models.reduce((sum, row) => sum + row.requests, 0), total.requests);
+        const cost = total.models.reduce((sum, row) => row.costUsd === null ? sum : (sum ?? 0) + row.costUsd, null);
+        assert.equal(cost, total.costUsd);
+      }
+    }
+  }
+});

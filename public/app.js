@@ -331,7 +331,23 @@ function buildCard({ id, name }, slot) {
   windowsHead.append(el('span', null, 'Remaining quota'), quotaUpdated);
   const note = el('p', 'note');
   note.hidden = true;
-  front.append(head, totals, details, windowsHead, windows, note);
+  const modelBreakdown = el('div', 'model-breakdown');
+  modelBreakdown.tabIndex = 0;
+  modelBreakdown.setAttribute('role', 'region');
+  const modelTable = el('table', 'model-table');
+  const modelHead = el('thead');
+  const modelColumns = el('tr');
+  for (const label of ['Model', 'Tokens', 'Est. cost']) {
+    const column = el('th', null, label);
+    column.setAttribute('scope', 'col');
+    modelColumns.append(column);
+  }
+  modelHead.append(modelColumns);
+  const modelRows = el('tbody');
+  modelTable.append(modelHead, modelRows);
+  const modelEmpty = el('p', 'model-empty', 'Awaiting usage data…');
+  modelBreakdown.append(modelTable, modelEmpty);
+  front.append(head, totals, details, windowsHead, windows, note, modelBreakdown);
 
   const picker = el('div', 'provider-picker');
   picker.id = `provider-picker-${slot}`;
@@ -347,7 +363,9 @@ function buildCard({ id, name }, slot) {
   const choices = el('div', 'provider-choices');
   const options = new Map();
   const record = { card, front, picker, heading, changeButton, options, slot, providerId: id,
-    periodLabel, stats, totals, details, windowsHead, quotaUpdated, windows, note, windowIds: '', windowNodes: new Map() };
+    periodLabel, stats, totals, details, windowsHead, quotaUpdated, windows, note,
+    modelBreakdown, modelTable, modelRows, modelEmpty, modelSignature: null, modelScope: null,
+    windowIds: '', windowNodes: new Map() };
   for (const provider of PROVIDERS) {
     const button = el('button', 'provider-choice', provider.name);
     button.type = 'button';
@@ -447,6 +465,49 @@ function updateWindow(node, entry) {
   );
 }
 
+function renderModelUsage(card, totals) {
+  const models = Array.isArray(totals?.models) ? totals.models : null;
+  const scope = JSON.stringify([card.providerId, period, caller]);
+  const signature = JSON.stringify([scope, models, totals?.tokens]);
+  if (signature === card.modelSignature) return;
+  const scrollTop = scope === card.modelScope ? card.modelBreakdown.scrollTop : 0;
+  card.modelSignature = signature;
+  card.modelScope = scope;
+  const name = PROVIDER_NAMES.get(card.providerId);
+  card.modelBreakdown.setAttribute('aria-label', `${name} model usage for ${PERIOD_LABELS[period]}`);
+  card.modelTable.hidden = !models?.length;
+  card.modelEmpty.hidden = !!models?.length;
+  card.modelEmpty.textContent = totals === null ? 'Awaiting usage data…'
+    : models === null ? 'Model breakdown is unavailable.'
+    : caller ? 'No model usage for this API key in this period.' : 'No model usage in this period.';
+  card.modelRows.replaceChildren(...(models ?? []).map(model => {
+    const row = el('tr');
+    const modelName = model.model || 'Unknown model';
+    const label = el('th', 'model-name', modelName);
+    label.setAttribute('scope', 'row');
+    label.title = modelName;
+    const tokens = typeof model.tokens === 'number' && Number.isFinite(model.tokens) ? model.tokens : null;
+    const usage = el('td', 'model-usage');
+    usage.append(el('span', null, tokens === null ? 'n/a' : compactText(tokens)));
+    if (tokens !== null && totals.tokens > 0) {
+      const share = Math.min(100, tokens / totals.tokens * 100);
+      const shareLabel = share > 0 && share < 1 ? '<1%' : percentText(share);
+      usage.append(el('span', 'model-share', shareLabel));
+    }
+    usage.title = tokens === null ? 'No token count reported' : `${exactText(tokens)} reported tokens; ${exactText(model.requests)} requests`;
+    const cost = typeof model.costUsd === 'number' && Number.isFinite(model.costUsd) ? model.costUsd : null;
+    const estimate = el('td', 'model-cost', cost === null ? 'n/a' : costText(cost));
+    const partial = cost !== null && model.pricedRequests < model.requests;
+    if (partial) estimate.append(el('span', 'model-share', 'partial'));
+    estimate.title = cost === null ? 'No priced usage recorded for this model'
+      : partial ? `Partial estimate: ${model.pricedRequests} of ${model.requests} requests priced`
+      : `About ${costFormat.format(cost)} at list prices`;
+    row.append(label, usage, estimate);
+    return row;
+  }));
+  card.modelBreakdown.scrollTop = scrollTop;
+}
+
 function renderProviders(payload) {
   for (const [slot, id] of selectedProviders.entries()) {
     const provider = PROVIDERS.find(entry => entry.id === id);
@@ -500,6 +561,7 @@ function renderProviders(payload) {
       const cost = number(totals?.costUsd);
       setCount(card.stats.costUsd.value, cost, v => (v === null ? 'n/a' : costText(v)));
       card.stats.costUsd.value.title = cost === null ? 'No priced usage recorded' : `About ${costFormat.format(cost)} at list prices`;
+      renderModelUsage(card, totals);
     }
 
     const windows = !usageOnly && Array.isArray(quota?.windows) ? quota.windows : [];

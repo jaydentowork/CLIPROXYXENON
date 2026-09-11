@@ -68,6 +68,34 @@ export function demoSnapshot(period, now = Date.now(), caller = null) {
     };
   }
 
+  // Representative model splits reconcile with the displayed provider totals.
+  const modelMix = {
+    antigravity: [['gemini-2.5-pro', 0.68], ['gemini-2.5-flash', 0.24], ['gemini-2.5-flash-lite', 0.08]],
+    claude: [['claude-sonnet-4-5', 0.72], ['claude-haiku-4-5', 0.20], ['claude-opus-4-1', 0.08]],
+    codex: [['gpt-5-codex', 0.74], ['gpt-5-mini', 0.26]],
+    opencode: [['claude-sonnet-4-5', 0.60], ['deepseek-flash', 0.40]],
+    mimo: [['mimo-v2.5-pro', 0.70], ['mimo-v2.5', 0.30]],
+  };
+  for (const [provider, total] of Object.entries(totals)) {
+    const remaining = { ...total };
+    total.models = total.requests === 0 ? [] : modelMix[provider].map(([model, weight], index, mix) => {
+      const counts = {};
+      for (const key of ['requests', 'tokens', 'inputTokens', 'outputTokens', 'cachedTokens']) {
+        counts[key] = index === mix.length - 1 ? remaining[key] : Math.round(total[key] * weight);
+        remaining[key] -= counts[key];
+      }
+      const perRequest = counts.requests ? estimateCost({ model, provider,
+        inputTokens: counts.inputTokens / counts.requests,
+        outputTokens: counts.outputTokens / counts.requests,
+        cachedTokens: counts.cachedTokens / counts.requests }) : null;
+      return { model, requests: counts.requests, tokens: counts.tokens,
+        costUsd: perRequest === null ? null : perRequest * counts.requests,
+        pricedRequests: perRequest === null ? 0 : counts.requests };
+    });
+    total.costUsd = total.models.reduce((sum, model) =>
+      model.costUsd === null ? sum : (sum ?? 0) + model.costUsd, null);
+  }
+
   return {
     generatedAt: iso(now), period, timezone: 'America/Chicago', trackingSince,
     totals, quota, gaps: [], demo: true, callers: DEMO_CALLERS, caller: selected,

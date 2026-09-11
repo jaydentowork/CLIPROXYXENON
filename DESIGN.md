@@ -1,23 +1,27 @@
 ---
 name: XENEON EDGE
-description: Smoked-glass quota and request monitoring for the CORSAIR XENEON EDGE.
+description: Liquid-glass quota and request monitoring for the CORSAIR XENEON EDGE.
 register: product
 ---
 
 # Design System: XENEON EDGE
 
-The reference is a dashboard of broad, rounded smoked-glass panels with white
+The reference is a dashboard of broad, rounded liquid-glass panels with white
 readings, bright fine rims, restrained yellow accents, and segmented gauges.
 The monitoring data and existing controls remain the focus.
 
 ## Scene and material
 
-- One fixed slate scene flows from cool grey at the top to charcoal below, with
-  soft warm light and faint architectural streaks behind the glass.
-- Panels use `oklch(0.43 0.012 240 / 0.8)`, a subtle white surface gradient,
-  a white 34% rim, an inset top highlight, and one soft outer shadow.
-- Blur is 28px with 80% saturation. Contents and toolbar controls have no
-  additional backdrop blur. Unsupported browsers use an opaque dark surface.
+- One fixed meadow panorama (`public/1.png`) covers the viewport, with a dark
+  gradient at the top to keep the white header readable.
+- Liquid glass keeps the scenery visible: a 30% dark green-neutral tint
+  (`oklch(0.20 0.014 150 / 0.3)`), a restrained diagonal sheen, fine 28% white
+  rims, bright inset top and side highlights, and a soft outer shadow.
+- The shared optical filter uses 12px blur, 135% saturation, and 68% brightness.
+  Greenery and flowers stay visible through the provider cards and live feed.
+  Text has a small dark shadow; nested content adds no additional blur.
+- Browsers without backdrop filtering use an opaque dark green-neutral surface.
+  Settings retain that stronger surface for form readability.
 - Primary panels have a 36px radius, reduced to 28px on phones. Insets use 12px.
 - Scene, material, signals, spacing, and fonts are defined in `public/style.css`.
 
@@ -71,6 +75,12 @@ scroll internally on the EDGE.
   the real remaining percentage. Low quota uses amber; Unknown stays unfilled
   with a dashed outline. A compact relative **Updated** age sits beside the
   Remaining quota heading. Compact-height screens use a 44px strip.
+- **Model breakdown:** a fine divider below quota separates a per-model table of
+  reported tokens, share of the provider's tokens, and estimated cost. Rows follow
+  Today/Week/Month and the API-key filter, sorted by token usage. Long lists scroll
+  inside the glass card; MiMo shows the same section below its usage totals.
+  Unpriced models show n/a; incomplete cost estimates say partial. Background
+  refreshes preserve the model list's scroll position; changing its scope resets it.
 - **Live feed:** time, provider/model, input, output, cached tokens, estimated
   cost, and result. Aliases remain visible when space permits. Smaller displays
   stack provider and model; phones keep Output and Cost, with other token data

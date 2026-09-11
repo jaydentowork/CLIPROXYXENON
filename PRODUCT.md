@@ -7,10 +7,11 @@ product
 A personal, at-a-glance monitoring display on the CORSAIR XENEON EDGE at 2560 × 720. The user checks remaining provider quota, selected-period token use, and recent completed requests through a browser. Requirements are approved in docs/dashboard-brief.md.
 
 ## Product character
-Calm, direct, legible. A smoked-glass monitoring surface for a desk touchscreen, with enough contrast to read without sustained attention.
+Calm, direct, legible. A liquid-glass monitoring surface for a desk touchscreen, with enough contrast to read without sustained attention.
 
 ## Design principles
 - Keep the three provider summaries and live feed visible together.
+- Show each provider's model usage and estimated cost beneath its quota or usage summary.
 - Report partial coverage, stale readings, and collection gaps honestly.
 - Keep calendar token reporting distinct from provider quota resets.
 - Make Today, Week, and Month controls easy to touch and operate by keyboard.
