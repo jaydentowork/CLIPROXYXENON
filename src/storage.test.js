@@ -55,7 +55,7 @@ function usageEvent(overrides = {}) {
 }
 
 test('only included providers become history', (t) => {
-  const fixture = withStore();
+  const fixture = withStore(() => Date.parse('2026-09-10T18:30:00Z'));
   t.after(() => fixture.dispose());
   const { store } = fixture;
 
@@ -115,6 +115,9 @@ test('OpenAI-compatible provider fields infer the provider and flat token fields
   assert.equal(snapshot.recent[1].inputTokens, 106271);
   assert.equal(snapshot.recent[1].outputTokens, 373);
   assert.equal(snapshot.recent[1].cachedTokens, 106112);
+  assert.equal(snapshot.totals.opencode.inputTokens, 106271);
+  assert.equal(snapshot.totals.opencode.outputTokens, 373);
+  assert.equal(snapshot.totals.opencode.cachedTokens, 106112);
   assert.equal(snapshot.totals.opencode.requests, 2);
   assert.equal(snapshot.totals.opencode.tokens, 106686);
   assert.equal(snapshot.totals.opencode.reasoningTokens, 187);
@@ -398,4 +401,67 @@ test('model aggregates cover full period, isolate callers and preserve unknown p
   assert.equal(scoped.models.find(row => row.model === 'gpt-5.4').requests, 36);
   assert.equal(store.snapshot('week', callerId('sk-secret-value')).totals.codex.models[0].model, 'earlier-week');
   assert.deepEqual(store.snapshot('today', 'unknown-caller').totals.codex.models, []);
+});
+
+test('Claude historical input includes cache reads and writes for every request', t => {
+  const clock = Date.parse('2026-09-10T18:30:00Z');
+  const fixture = withStore(() => clock);
+  let reopened;
+  t.after(() => { reopened?.close(); fixture.dispose(); });
+  // Native Claude: 2 uncached + 85,098 cache reads + 2,973 cache writes.
+  // The 600 thinking tokens are already inside the 1,179 output tokens.
+  for (let i = 0; i < 900; i++) fixture.store.ingest(usageEvent({
+    provider: 'claude', model: 'claude-sonnet-4-5', request_id: 'claude-' + i,
+    tokens: { input_tokens: 2, output_tokens: 1179, cached_tokens: 85098,
+      reasoning_tokens: 600, total_tokens: 89252 },
+  }));
+  fixture.store.close();
+  reopened = createStore({ path: fixture.path, now: () => clock });
+  const snapshot = reopened.snapshot();
+  assert.equal(snapshot.totals.claude.requests, 900);
+  assert.equal(snapshot.totals.claude.inputTokens, 79265700);
+  assert.equal(snapshot.totals.claude.outputTokens, 1061100);
+  assert.equal(snapshot.totals.claude.tokens, 80326800);
+  assert.equal(snapshot.totals.claude.reasoningTokens, 540000);
+  assert.equal(snapshot.recent[0].inputTokens, 88073);
+  assert.equal(snapshot.recent[0].outputTokens, 1179);
+  assert.equal(snapshot.recent[0].cachedTokens, 85098);
+  assert.equal(snapshot.recent[0].costUsd, (2 * 3 + 85098 * 0.3 + 1179 * 15) / 1e6);
+  const db = new DatabaseSync(fixture.path, { readOnly: true });
+  try {
+    assert.equal(db.prepare('SELECT SUM(input_tokens) AS input FROM events').get().input, 1800);
+  } finally { db.close(); }
+});
+
+test('Claude explicit cache reads take precedence over the legacy cache-write fallback', t => {
+  const store = createStore({ path: ':memory:', now: () => Date.parse('2026-09-10T18:30:00Z') });
+  t.after(() => store.close());
+  for (const flat of [false, true]) {
+    const tokens = { input_tokens: 2, output_tokens: 10, cached_tokens: 600,
+      cache_read_tokens: 0, cache_read_tokens_present: true,
+      cache_creation_tokens: 600, total_tokens: 612 };
+    store.ingest(usageEvent({ provider: 'claude', model: 'claude-sonnet-4-5',
+      ...(flat ? { tokens: undefined, ...tokens } : { tokens }) }));
+  }
+  const snapshot = store.snapshot();
+  assert.equal(snapshot.totals.claude.inputTokens, 1204);
+  assert.equal(snapshot.totals.claude.cachedTokens, 0);
+  assert.ok(snapshot.recent.every(row => row.cachedTokens === 0 && row.inputTokens === 602));
+});
+
+test('Claude input falls back per request when source totals or splits are incomplete', t => {
+  const store = createStore({ path: ':memory:', now: () => Date.parse('2026-09-10T18:30:00Z') });
+  t.after(() => store.close());
+  for (const [id, tokens] of [
+    ['no-total', { input_tokens: 3, output_tokens: 20, cached_tokens: 50 }],
+    ['short-total', { input_tokens: 3, output_tokens: 20, cached_tokens: 50, total_tokens: 23 }],
+    ['no-output', { input_tokens: 3, cached_tokens: 50, total_tokens: 100 }],
+    ['no-input', { output_tokens: 20, total_tokens: 120 }],
+    ['unknown', { output_tokens: 20, cached_tokens: 50 }],
+  ]) store.ingest(usageEvent({ provider: 'claude', request_id: id, tokens }));
+  const snapshot = store.snapshot();
+  assert.equal(snapshot.totals.claude.inputTokens, 259);
+  assert.deepEqual(Object.fromEntries(snapshot.recent.map(row => [row.requestId, row.inputTokens])), {
+    unknown: null, 'no-input': 100, 'no-output': 53, 'short-total': 53, 'no-total': 53,
+  });
 });

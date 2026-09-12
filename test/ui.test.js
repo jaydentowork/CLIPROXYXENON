@@ -242,14 +242,22 @@ test('unavailable crypto or localStorage never silently drops a saved filter', a
   assert.match(active.nodes.get('key-status').textContent, /storage is unavailable/);
 });
 
-test('Claude cache hit uses total prompt size when native input excludes cache reads', async () => {
+test('Claude cache hit uses the normalized total prompt size', async () => {
   const ui = browserFixture();
   const payload = demoSnapshot('today');
-  payload.totals.claude.inputTokens = 100;
+  // The backend reports Claude inputTokens as the whole prompt, cache reads included.
+  payload.totals.claude.inputTokens = 1000;
   payload.totals.claude.cachedTokens = 900;
+  payload.totals.claude.outputTokens = 200;
+  payload.totals.claude.tokens = 1200;
   await ui.respond(0, payload);
   const front = ui.nodes.get('providers').children[1].children[0];
-  assert.equal(front.children[1].children[2].children[0].textContent, '90%');
+  const cacheHit = front.children[1].children[2].children[0];
+  const details = front.children[2];
+  assert.equal(cacheHit.textContent, '90%');
+  assert.equal(cacheHit.title, '900 cached of 1,000 input tokens');
+  assert.equal(details.children[0].children[1].textContent, '1K');
+  assert.equal(details.children[1].children[1].textContent, '200');
 });
 
 
@@ -335,4 +343,54 @@ test('demo model splits reconcile with provider totals for every reporting perio
       }
     }
   }
+});
+
+test('header totals include every provider once and follow the selected period', async () => {
+  const ui = browserFixture('["claude","claude","claude"]');
+  const payload = demoSnapshot('today');
+  for (const [i, id] of ['antigravity', 'claude', 'codex', 'opencode', 'mimo'].entries()) {
+    Object.assign(payload.totals[id], { inputTokens: (i + 1) * 1000, outputTokens: (i + 1) * 10, costUsd: i + 1 });
+  }
+  await ui.respond(0, payload);
+  assert.equal(ui.nodes.get('summary-input')?.textContent, '15K');
+  assert.equal(ui.nodes.get('summary-output')?.textContent, '150');
+  assert.equal(ui.nodes.get('summary-cost')?.textContent, '$15.00');
+  assert.equal(ui.nodes.get('summary-scope').textContent, 'All providers · today');
+  ui.buttons[1].listeners.click();
+  assert.equal(ui.nodes.get('summary-input')?.textContent, '15K');
+  assert.equal(ui.nodes.get('summary-scope').textContent, 'All providers · today');
+  const week = { ...payload, period: 'week', totals: Object.fromEntries(Object.entries(payload.totals).map(([id, total]) =>
+    [id, { ...total, inputTokens: total.inputTokens * 2, outputTokens: total.outputTokens * 2, costUsd: total.costUsd * 2 }])) };
+  await ui.respond(1, week);
+  assert.equal(ui.nodes.get('summary-input')?.textContent, '30K');
+  assert.equal(ui.nodes.get('summary-output')?.textContent, '300');
+  assert.equal(ui.nodes.get('summary-cost')?.textContent, '$30.00');
+  assert.equal(ui.nodes.get('summary-scope').textContent, 'All providers · this week');
+});
+
+test('header totals clear when changing keys and mark incomplete cost estimates', async () => {
+  const ui = browserFixture();
+  const payload = demoSnapshot('today');
+  payload.totals = {
+    claude: { requests: 2, inputTokens: 1000, outputTokens: 100, costUsd: 1,
+      models: [{ model: 'partial', requests: 2, pricedRequests: 1, tokens: 1100, costUsd: 1 }] },
+    mimo: { requests: 1, inputTokens: 2000, outputTokens: 200, costUsd: null, models: [] },
+  };
+  await ui.respond(0, payload);
+  assert.equal(ui.nodes.get('summary-cost')?.textContent, '$1.00');
+  assert.equal(ui.nodes.get('summary-cost-note').hidden, false);
+  ui.nodes.get('api-key').value = 'sk-summary-test';
+  ui.nodes.get('apply-key').listeners.click();
+  await ui.settle();
+  assert.equal(ui.nodes.get('summary-input')?.textContent, 'n/a');
+  assert.equal(ui.nodes.get('summary-cost')?.textContent, 'n/a');
+  const scoped = { ...payload, caller: callerId('sk-summary-test'), totals: {
+    claude: { requests: 1, inputTokens: 17, outputTokens: 9, costUsd: null, models: [] },
+  } };
+  await ui.respond(1, scoped);
+  assert.equal(ui.nodes.get('summary-input')?.textContent, '17');
+  assert.equal(ui.nodes.get('summary-output')?.textContent, '9');
+  assert.equal(ui.nodes.get('summary-cost')?.textContent, 'n/a');
+  assert.equal(ui.nodes.get('summary-cost-note').hidden, true);
+  assert.equal(ui.nodes.get('summary-scope').textContent, 'All providers · today · your API key');
 });

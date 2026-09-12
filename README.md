@@ -61,6 +61,12 @@ If using a bridge network instead, configure the RESP address to a reachable pro
 
 The image runs as the `node` user. For a bind mount, make the data directory writable by that user (UID 1000); the named-volume example preserves image directory ownership. Back up SQLite with its online backup facility or stop the service before copying the database and any WAL files together.
 
+## Display preferences
+
+The top-center summary totals input tokens, output tokens, and estimated cost across every provider for the selected period and API-key filter, including providers not shown in the three cards. A partial cost estimate excludes unpriced requests.
+
+In **Settings → Background**, choose a JPEG, PNG, or WebP image up to 12 MB. The browser resizes it to at most 2560 pixels on the longest edge and saves it in localStorage. The image stays on that browser and is restored after reload. **Use default background** removes the custom image and restores the meadow. If browser storage is full or unavailable, an upload leaves the previous background in place and shows an error.
+
 ## Data and freshness
 
 Today, Week, and Month use `America/Chicago`, including CST/CDT changes. Weeks start Monday at local midnight; months start on the first. These selections affect request, token, and estimated-cost totals. The recent completed-request feed remains current, refreshed with the dashboard every five seconds. Provider reset windows are independent of calendar reports.
@@ -71,7 +77,9 @@ Quota refresh runs immediately on startup, then every 30 minutes in one coordina
 
 **Est. cost** uses the public [OpenRouter model catalog](https://openrouter.ai/api/v1/models), fetched at each normal CLI startup with an eight-second timeout. An in-memory map keyed by model name matches normalized names and IDs first, then close, unambiguous names. Vendor prefixes, version separators, date suffixes, and reasoning-effort suffixes are supported; different model generations and batch/free rates are not substituted. OpenRouter's per-token rates are converted to USD per million, and context-length tiers apply to each request before summing. Your supplied MiMo rates and the peak-hour `deepseek-flash` rates remain fixed overrides. If fetching fails, the server reports it and uses built-in fallback rates.
 
-These are current list-price estimates, not subscription charges or historical invoices. Input, cached reads, and output are priced; native Claude input excludes cached reads, while other providers use inclusive input counts. Cache writes and other charges absent from telemetry are excluded. Missing token breakdowns or unmatched models show `n/a`; unpriced requests are excluded from provider cost totals. No request history is rewritten when prices change.
+The displayed **Input** count includes the full prompt, including cache reads and writes for native Claude when its source total and output are complete. Incomplete telemetry falls back to the available uncached input plus cache count. **Cache hit** is cache reads divided by that inclusive input count. Existing Claude history is normalized per request when read, without rewriting the database; output already includes thinking tokens.
+
+These are current list-price estimates, not subscription charges or historical invoices. Pricing uses the stored raw counts: native Claude uncached input and cache reads are priced separately, while other providers use inclusive input counts. Cache-write charges and other fees not retained in the pricing breakdown are excluded. Missing token breakdowns or unmatched models show `n/a`; unpriced requests are excluded from provider cost totals. No request history is rewritten when prices change.
 
 In **Settings → Usage filter**, paste your proxy API key and choose **Apply filter**. The raw key is saved only in this browser's localStorage; the browser sends its SHA-256/base64url caller hash (first 16 characters) to filter requests, tokens, and costs. No server alias configuration is needed. A key with no matching recorded events shows an empty feed. **Clear filter · show all** removes the saved key and restores all usage. Provider quotas remain shared. HTTPS or localhost is required for browser hashing. This is a display filter, not authentication; your existing access layer still controls who can open the dashboard.
 

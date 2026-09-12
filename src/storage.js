@@ -115,9 +115,14 @@ function normalizeEvent(raw, callers) {
   const outputTokens = asCount(
     tokenPayload.output_tokens ?? tokenPayload.outputTokens ?? raw.output_tokens ?? raw.outputTokens,
   );
+  const cacheReadTokens = asCount(
+    tokenPayload.cache_read_tokens ?? tokenPayload.cacheReadTokens ?? raw.cache_read_tokens ?? raw.cacheReadTokens,
+  );
+  const cacheReadPresent = tokenPayload.cache_read_tokens_present ?? tokenPayload.cacheReadTokensPresent
+    ?? raw.cache_read_tokens_present ?? raw.cacheReadTokensPresent;
   const cachedCandidates = [
     asCount(tokenPayload.cached_tokens ?? tokenPayload.cachedTokens ?? raw.cached_tokens ?? raw.cachedTokens),
-    asCount(raw.cache_read_tokens ?? raw.cacheReadTokens),
+    cacheReadTokens,
   ].filter(value => value !== null);
   const failed = raw.failed === true || raw.failed === 'true';
   return {
@@ -133,13 +138,30 @@ function normalizeEvent(raw, callers) {
     tokens: totalTokens,
     inputTokens,
     outputTokens,
-    cachedTokens: cachedCandidates.length ? Math.max(...cachedCandidates) : null,
+    // Native Claude's legacy cached_tokens can contain cache writes when
+    // there were no reads. An explicit read count, including zero, wins.
+    cachedTokens: provider === 'claude' && cacheReadPresent !== false && cacheReadTokens !== null
+      ? cacheReadTokens : cachedCandidates.length ? Math.max(...cachedCandidates) : null,
     reasoningTokens: asCount(
       tokenPayload.reasoning_tokens ?? tokenPayload.reasoningTokens ?? raw.reasoning_tokens ?? raw.reasoningTokens,
     ),
     // The raw key is reduced to an opaque caller id here and never kept.
     caller: callers.resolve(raw.api_key ?? raw.apiKey),
   };
+}
+
+// Present inclusive input for native Claude without rewriting stored history
+// or changing the raw counts used for pricing. Its total includes cache reads
+// and writes; output already includes thinking, so do not subtract it again.
+function promptInputTokens(row) {
+  if (row.provider !== 'claude') return row.input_tokens;
+  const knownInput = (row.input_tokens ?? 0) + (row.cached_tokens ?? 0);
+  if (row.tokens !== null && row.output_tokens !== null
+      && row.tokens - row.output_tokens >= knownInput) {
+    return row.tokens - row.output_tokens;
+  }
+  // Legacy/incomplete totals can omit cache tokens. Use the available split.
+  return row.input_tokens === null ? null : asCount(knownInput);
 }
 
 function emptyTotals() {
@@ -194,7 +216,6 @@ export function createStore({ path, now = () => Date.now(), apiKeyAliases = [] }
     SELECT provider,
       COUNT(*) AS requests,
       COALESCE(SUM(tokens), 0) AS tokens,
-      COALESCE(SUM(input_tokens), 0) AS inputTokens,
       COALESCE(SUM(output_tokens), 0) AS outputTokens,
       COALESCE(SUM(cached_tokens), 0) AS cachedTokens,
       COALESCE(SUM(reasoning_tokens), 0) AS reasoningTokens
@@ -283,7 +304,7 @@ export function createStore({ path, now = () => Date.now(), apiKeyAliases = [] }
       totals[row.provider] = {
         requests: Number(row.requests),
         tokens: Number(row.tokens),
-        inputTokens: Number(row.inputTokens),
+        inputTokens: 0,
         outputTokens: Number(row.outputTokens),
         cachedTokens: Number(row.cachedTokens),
         reasoningTokens: Number(row.reasoningTokens),
@@ -295,6 +316,7 @@ export function createStore({ path, now = () => Date.now(), apiKeyAliases = [] }
     for (const row of selectUsage.iterate(startMs, nowMs, filter, filter)) {
       const totalsRow = totals[row.provider];
       if (!totalsRow) continue;
+      totalsRow.inputTokens += promptInputTokens(row) ?? 0;
       const usd = estimateCost({ model: row.model, provider: row.provider, inputTokens: row.input_tokens,
         outputTokens: row.output_tokens, cachedTokens: row.cached_tokens });
       if (usd !== null) totalsRow.costUsd = (totalsRow.costUsd ?? 0) + usd;
@@ -325,7 +347,7 @@ export function createStore({ path, now = () => Date.now(), apiKeyAliases = [] }
       outcome: row.outcome,
       durationMs: row.duration_ms === null ? null : Number(row.duration_ms),
       tokens: row.tokens === null ? null : Number(row.tokens),
-      inputTokens: row.input_tokens === null ? null : Number(row.input_tokens),
+      inputTokens: promptInputTokens(row),
       outputTokens: row.output_tokens === null ? null : Number(row.output_tokens),
       cachedTokens: row.cached_tokens === null ? null : Number(row.cached_tokens),
       costUsd: estimateCost({ model: row.model, provider: row.provider, inputTokens: row.input_tokens, outputTokens: row.output_tokens, cachedTokens: row.cached_tokens }),

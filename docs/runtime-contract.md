@@ -46,7 +46,7 @@ DeepSeek rate uses its peak-hour tier.
 Pricing matches these exact model ids, with optional vendor prefixes. Cached
 input is removed from the regular input count before pricing. OpenCode otherwise uses the startup OpenRouter catalog and name matching. These exact rates override catalog prices. Unsupported models remain unpriced.
 
-The password field saves the raw API key in browser localStorage only and hashes it before the first request. Clearing removes the saved key. Quota remains provider-wide; this is not an authentication boundary. Pricing loads from the public OpenRouter model catalog during normal CLI startup, with an eight-second timeout and built-in fallback. Provider cost totals sum per-request estimates so context-length tiers are applied correctly. Claude native input is priced separately from cached reads.
+The password field saves the raw API key in browser localStorage only and hashes it before the first request. Clearing removes the saved key. Quota remains provider-wide; this is not an authentication boundary. Pricing loads from the public OpenRouter model catalog during normal CLI startup, with an eight-second timeout and built-in fallback. Provider cost totals sum per-request estimates so context-length tiers are applied correctly. Claude native input is priced separately from cached reads. Snapshot `inputTokens` is the inclusive prompt count for all providers, normalized per Claude request from total minus output (with available input/cache fallback for incomplete totals). Card cache rates use `cachedTokens / inputTokens` directly; raw stored input remains unchanged for pricing.
 
 
 ## Per-model usage breakdown

@@ -24,6 +24,14 @@
         </p>
       </div>
         </div>
+    <section class="usage-summary" aria-label="Usage totals for all providers" aria-describedby="summary-scope">
+      <p class="summary-scope" id="summary-scope">All providers · today</p>
+      <div class="summary-values">
+        <div class="summary-stat"><span class="summary-label">Total input</span><span class="summary-value" id="summary-input">n/a</span></div>
+        <div class="summary-stat"><span class="summary-label">Total output</span><span class="summary-value" id="summary-output">n/a</span></div>
+        <div class="summary-stat"><span class="summary-label">Est. cost <span class="summary-note" id="summary-cost-note" hidden>partial</span></span><span class="summary-value" id="summary-cost">n/a</span></div>
+      </div>
+    </section>
     <div class="bar-side">
       <p class="collector" id="collector" role="status" data-state="unknown">
         <span class="pip" aria-hidden="true"></span>
@@ -65,6 +73,15 @@
         </div>
         <p class="settings-note" id="key-status" role="status" aria-live="polite"></p>
       </fieldset>
+      <fieldset class="settings-group background-group">
+        <legend>Background</legend>
+        <img class="background-preview" id="background-preview" src="./1.png" alt="">
+        <label class="key-label" for="background-image">Choose your image</label>
+        <input class="background-file" id="background-image" type="file" accept="image/jpeg,image/png,image/webp" aria-describedby="background-note background-status">
+        <p class="settings-note" id="background-note">JPEG, PNG or WebP, up to 12 MB. Saved only in this browser.</p>
+        <div class="key-actions"><button id="background-reset" type="button">Use default background</button></div>
+        <p class="settings-note" id="background-status" role="status" aria-live="polite"></p>
+      </fieldset>
     </form>
   </dialog>
 
@@ -94,5 +111,6 @@
 </div>
 <noscript><p class="banner">This display needs JavaScript to poll the dashboard API.</p></noscript>
 <script type="module" src="./app.js"></script>
+<script type="module" src="./background.js"></script>
 </body>
 </html>

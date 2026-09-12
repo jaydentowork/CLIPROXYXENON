@@ -12,8 +12,9 @@ The monitoring data and existing controls remain the focus.
 
 ## Scene and material
 
-- One fixed meadow panorama (`public/1.png`) covers the viewport, with a dark
-  gradient at the top to keep the white header readable.
+- One fixed panorama covers the viewport, with a dark gradient at the top to
+  keep the white header readable. The default meadow (`public/1.png`) can be
+  replaced with an image saved in this browser through Settings.
 - Liquid glass keeps the scenery visible: a 20% dark green-neutral tint
   (`oklch(0.17 0.012 155 / 0.20)`), a restrained diagonal sheen, fine 32% white
   rims, bright inset top and side highlights, and a soft outer shadow.
@@ -57,7 +58,11 @@ scroll internally on the EDGE.
 ## Components
 
 - **Header:** one monitor title, update time, tracking start, collection status,
-  period selector, settings, and fullscreen controls. Preview variants and the
+  period selector, settings, and fullscreen controls. A compact glass summary
+  is centered at the top: total input, output, and estimated cost across all
+  providers for the selected period and API-key filter. It follows the existing
+  number transitions and labels incomplete cost estimates as partial. On
+  smaller screens it occupies its own centered row. Preview variants and the
   development overlay are not included in the production page.
 - **Period selector:** three pill buttons, at least 44px high; an outlined yellow
   thumb indicates the selected period. Keep visible keyboard focus.
@@ -86,7 +91,7 @@ scroll internally on the EDGE.
   cost, and result. Aliases remain visible when space permits. Smaller displays
   stack provider and model; phones keep Output and Cost, with other token data
   available through the existing titles.
-- **Settings:** native modal dialog with a password field for an API key saved in localStorage, Apply filter, and Clear filter controls. Hash the saved key before requesting usage. Preserve focus handling, dismissal, and the active-filter badge; clear old figures when changing keys.
+- **Settings:** native modal dialog with a password field for an API key saved in localStorage, Apply filter, and Clear filter controls. Hash the saved key before requesting usage. Preserve focus handling, dismissal, and the active-filter badge; clear old figures when changing keys. A Background group contains a preview, a native image picker, and Use default background. Images stay in localStorage; invalid files and storage failures show an inline status without replacing the previous image. Keep the dialog scrollable on short screens.
 - **Notices:** clearly identify simulated data, unavailable APIs, stale
   readings, partial coverage, and collection gaps. Preserve the last reading
   when collection fails.

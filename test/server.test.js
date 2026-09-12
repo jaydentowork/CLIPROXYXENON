@@ -59,4 +59,7 @@ test('HTTP demo provides period totals with current feed and read-only safe rout
   assert.equal((await fetch(`${base}/v0/management/auth-files`)).status, 404);
   assert.equal((await fetch(`${base}/api/dashboard`, { method: 'POST' })).status, 405);
   assert.equal((await fetch(`${base}/healthz`)).status, 200);
+  const backgroundScript = await fetch(`${base}/background.js`);
+  assert.equal(backgroundScript.status, 200);
+  assert.match(backgroundScript.headers.get('content-type'), /javascript/);
 });

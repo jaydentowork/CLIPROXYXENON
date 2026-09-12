@@ -54,11 +54,16 @@ const dom = {
   clearKey: document.getElementById('clear-key'),
   keyStatus: document.getElementById('key-status'),
   feedFilter: document.getElementById('feed-filter'),
+  summaryInput: document.getElementById('summary-input'),
+  summaryOutput: document.getElementById('summary-output'),
+  summaryCost: document.getElementById('summary-cost'),
+  summaryCostNote: document.getElementById('summary-cost-note'),
+  summaryScope: document.getElementById('summary-scope'),
 };
 
 const API_KEY_STORAGE = 'cliproxyapi-monitor.api-key';
 
-const GLASS_SURFACES = '.provider, .provider-picker, .feed, .banner, .demo';
+const GLASS_SURFACES = '.provider, .provider-picker, .feed, .banner, .demo, .usage-summary';
 const GLASS_MOTION = typeof matchMedia !== 'function' || !matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 function trackGlassLight(event) {
@@ -577,13 +582,13 @@ function renderProviders(payload) {
         card.stats[key].value.title = raw === null ? 'No value recorded' : `${exactText(raw)} tokens`;
       }
 
-      // Cache hit rate: cached prompt tokens as a share of all input tokens.
+      // Cache hit rate: cached prompt tokens as a share of all input tokens,
+      // since inputTokens already counts cache reads and writes for every provider.
       const input = number(totals?.inputTokens);
       const cached = number(totals?.cachedTokens);
-      const prompt = input === null ? null : input + (id === 'claude' ? cached ?? 0 : 0);
-      const rate = prompt !== null && cached !== null && prompt > 0 ? Math.max(0, Math.min(100, (cached / prompt) * 100)) : null;
+      const rate = input !== null && cached !== null && input > 0 ? Math.max(0, Math.min(100, (cached / input) * 100)) : null;
       setCount(card.stats.cacheHit.value, rate, v => (v === null ? 'n/a' : percentText(v)));
-      card.stats.cacheHit.value.title = rate === null ? 'No input tokens recorded' : `${exactText(cached)} cached of ${exactText(prompt)} input tokens`;
+      card.stats.cacheHit.value.title = rate === null ? 'No input tokens recorded' : `${exactText(cached)} cached of ${exactText(input)} input tokens`;
 
       const cost = number(totals?.costUsd);
       setCount(card.stats.costUsd.value, cost, v => (v === null ? 'n/a' : costText(v)));
@@ -696,6 +701,30 @@ function renderFeed(payload) {
 
 /* ---------- header and notices ---------- */
 
+function renderSummary(payload) {
+  // Keep the displayed period with its figures until the new reading arrives.
+  if (payload && (payload.period !== period || (payload.caller ?? null) !== caller)) return;
+  const rows = Object.values(payload?.totals ?? {});
+  const known = value => typeof value === 'number' && Number.isFinite(value) && value >= 0;
+  const sum = key => {
+    const values = rows.map(row => row?.[key]).filter(known);
+    return values.length ? values.reduce((total, value) => total + value, 0) : null;
+  };
+  for (const [node, key] of [[dom.summaryInput, 'inputTokens'], [dom.summaryOutput, 'outputTokens']]) {
+    const value = sum(key);
+    setCount(node, value, v => v === null ? 'n/a' : compactText(Math.round(v)));
+    node.title = value === null ? 'No value recorded' : exactText(value) + ' tokens across all providers';
+  }
+  const cost = sum('costUsd');
+  const partial = rows.some(row => row?.requests > 0 && (!known(row.costUsd)
+    || (Array.isArray(row.models) && row.models.some(model => model.pricedRequests < model.requests))));
+  setCount(dom.summaryCost, cost, v => v === null ? 'n/a' : costText(v));
+  dom.summaryCostNote.hidden = cost === null || !partial;
+  dom.summaryCost.title = cost === null ? 'No priced usage recorded'
+    : 'About ' + costFormat.format(cost) + ' at list prices' + (partial ? '; excludes unpriced requests' : '');
+  dom.summaryScope.textContent = 'All providers · ' + PERIOD_LABELS[period] + (caller ? ' · your API key' : '');
+}
+
 function renderHeader() {
   const tracking = parseTime(view?.trackingSince);
   dom.tracking.textContent = tracking === null
@@ -752,6 +781,7 @@ function renderNotices() {
 }
 
 function render() {
+  renderSummary(view);
   renderProviders(view);
   renderFeed(view);
   renderHeader();
