@@ -70,6 +70,8 @@ async function startFakeServer(handlers = {}) {
           state.subscriptions += 1;
           socket.write(subscribeFrame(args[0] ?? 'usage', 1));
           handlers.onSubscribe?.({ socket, count: state.subscriptions });
+        } else if (command === 'PING') {
+          if (!handlers.ignorePing?.(state.subscriptions)) socket.write(arrayFrame(bulkFrame('pong'), bulkFrame('')));
         } else {
           socket.write(errorFrame(`ERR unknown command '${command}'`));
         }
@@ -204,6 +206,31 @@ test('reconnects after a drop and closes the collection gap', async (t) => {
   assert.equal(calls.gaps.length, 2, 'initial connection and disconnected gaps are recorded');
   assert.equal(calls.gaps[0].endedAt, null);
   assert.equal(calls.closedGaps.length, 2);
+});
+
+test('reconnects when a subscription goes silent', async (t) => {
+  const server = await startFakeServer({ ignorePing: (count) => count === 1 });
+  t.after(() => server.close());
+  const { store } = stubStore();
+
+  const statuses = [];
+  const collector = startCollector({
+    url: `redis://127.0.0.1:${server.port}`,
+    password: 'management-key',
+    store,
+    onStatus: (status) => statuses.push(status),
+    heartbeatIntervalMs: 50,
+  });
+  t.after(() => collector.stop());
+
+  await waitFor(() => server.state.subscriptions === 2);
+  await waitFor(() => statuses.at(-1).state === 'collecting');
+  assert.equal(statuses.some((status) => /stopped responding/.test(status.message)), true);
+
+  // A healthy subscription answers PING and stays on the same connection.
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  assert.equal(server.state.connections, 2);
+  assert.equal(server.state.commands.filter(([name]) => name === 'PING').length > 3, true);
 });
 
 test('reports unconfigured setups without connecting', async (t) => {

@@ -14,6 +14,9 @@ const HANDSHAKE_TIMEOUT_MS = 10000;
 const BACKOFF_BASE_MS = 1000;
 const BACKOFF_MAX_MS = 30000;
 const DEFAULT_RESP_PORT = 6379;
+// A subscription that only reads can sit on a half-open socket forever, so the
+// collector pings the proxy and reconnects when nothing arrives for 3 intervals.
+const HEARTBEAT_INTERVAL_MS = 30000;
 
 function clean(text, secrets) {
   let message = String(text ?? '')
@@ -92,7 +95,7 @@ function parseTarget(rawUrl) {
   return { host: parsed.hostname.replace(/^\[|\]$/g, ''), port, secure };
 }
 
-export function startCollector({ url, password, store, onStatus } = {}) {
+export function startCollector({ url, password, store, onStatus, heartbeatIntervalMs = HEARTBEAT_INTERVAL_MS } = {}) {
   const secret = typeof password === 'string' ? password : '';
   const secrets = [secret];
   const notify = typeof onStatus === 'function' ? onStatus : () => {};
@@ -106,6 +109,8 @@ export function startCollector({ url, password, store, onStatus } = {}) {
   let socket = null;
   let reconnectTimer = null;
   let handshakeTimer = null;
+  let heartbeatTimer = null;
+  let lastDataAt = 0;
   let buffer = Buffer.alloc(0);
   let awaiting = null;
   let attempt = 0;
@@ -164,6 +169,26 @@ export function startCollector({ url, password, store, onStatus } = {}) {
       clearTimeout(handshakeTimer);
       handshakeTimer = null;
     }
+  }
+
+  function clearHeartbeat() {
+    if (heartbeatTimer) {
+      clearInterval(heartbeatTimer);
+      heartbeatTimer = null;
+    }
+  }
+
+  function startHeartbeat() {
+    clearHeartbeat();
+    heartbeatTimer = setInterval(() => {
+      if (Date.now() - lastDataAt > heartbeatIntervalMs * 3) {
+        connectionError = 'Usage subscription stopped responding; reconnecting.';
+        socket?.destroy();
+        return;
+      }
+      send(['PING']);
+    }, heartbeatIntervalMs);
+    heartbeatTimer.unref?.();
   }
 
   function send(args) {
@@ -231,6 +256,7 @@ export function startCollector({ url, password, store, onStatus } = {}) {
       attempt = 0;
       closeCollectionGap();
       setState('collecting');
+      startHeartbeat();
       return;
     }
     const frame = value.type === 'array' ? value.value : null;
@@ -242,6 +268,7 @@ export function startCollector({ url, password, store, onStatus } = {}) {
 
   function handleData(frameGeneration, chunk) {
     if (frameGeneration !== generation) return;
+    lastDataAt = Date.now();
     buffer = buffer.length ? Buffer.concat([buffer, chunk]) : chunk;
     if (buffer.length > MAX_BUFFER_BYTES) {
       connectionError = 'Usage subscription sent an oversized frame.';
@@ -277,6 +304,7 @@ export function startCollector({ url, password, store, onStatus } = {}) {
     buffer = Buffer.alloc(0);
     awaiting = null;
     clearHandshakeTimer();
+    clearHeartbeat();
     if (authFailed) return;
     openCollectionGap('usage subscription disconnected');
     setState('disconnected', connectionError || 'Usage subscription disconnected.');
@@ -309,6 +337,7 @@ export function startCollector({ url, password, store, onStatus } = {}) {
     };
     const connection = target.secure ? tls.connect(options, onReady) : net.connect(options, onReady);
     connection.setNoDelay(true);
+    connection.setKeepAlive(true, 30000);
     connection.on('data', (chunk) => handleData(frameGeneration, chunk));
     connection.on('error', () => {
       if (frameGeneration !== generation) return;
@@ -326,6 +355,7 @@ export function startCollector({ url, password, store, onStatus } = {}) {
       reconnectTimer = null;
     }
     clearHandshakeTimer();
+    clearHeartbeat();
     openCollectionGap('usage collector stopped');
     const connection = socket;
     socket = null;
