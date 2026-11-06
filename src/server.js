@@ -38,6 +38,7 @@ export async function startApp(config = readConfig()) {
       baseUrl: config.baseUrl,
       managementKey: config.managementKey,
       codexWeights: config.codexWeights,
+      antigravityWeights: config.antigravityWeights,
       opencodeApiKeys: config.opencodeApiKeys,
     });
     if (config.respUrl) collector = startCollector({ url: config.respUrl, password: config.respPassword, store,

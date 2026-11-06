@@ -29,6 +29,12 @@ export function readConfig(env = process.env, argv = process.argv) {
       Object.values(codexWeights).some(weight => weight !== 5 && weight !== 20)) {
     throw new Error('CODEX_ACCOUNT_WEIGHTS must map stable account identifiers to 5 or 20.');
   }
+  let antigravityWeights;
+  try { antigravityWeights = JSON.parse(env.ANTIGRAVITY_ACCOUNT_WEIGHTS || '{}'); } catch { throw new Error('ANTIGRAVITY_ACCOUNT_WEIGHTS must be a JSON object.'); }
+  if (!antigravityWeights || Array.isArray(antigravityWeights) || typeof antigravityWeights !== 'object' ||
+      Object.values(antigravityWeights).some(weight => ![1, 5, 20].includes(weight))) {
+    throw new Error('ANTIGRAVITY_ACCOUNT_WEIGHTS must map stable account identifiers to 1, 5, or 20.');
+  }
   const respUrl = env.CLIPROXYAPI_RESP_URL || null;
   if (respUrl) {
     let url;
@@ -42,7 +48,7 @@ export function readConfig(env = process.env, argv = process.argv) {
     baseUrl: managementBase(env.CLIPROXYAPI_BASE_URL),
     managementKey: env.MANAGEMENT_KEY || '',
     respUrl, respPassword: env.CLIPROXYAPI_RESP_PASSWORD || env.MANAGEMENT_KEY || '',
-    codexWeights, dataPath: resolve(env.DATA_PATH || 'data/dashboard.sqlite'),
+    codexWeights, antigravityWeights, dataPath: resolve(env.DATA_PATH || 'data/dashboard.sqlite'),
     opencodeApiKeys: parseOpenCodeApiKeys(env.OPENCODE_APIKEY),
     apiKeyAliases: parseApiKeyAliases(env.API_KEY_ALIASES),
   };

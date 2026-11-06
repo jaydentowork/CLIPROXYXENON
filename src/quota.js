@@ -43,7 +43,9 @@ const QUOTA_ENDPOINTS = {
     headers: () => ({
       Authorization: 'Bearer $TOKEN$',
       'Content-Type': 'application/json',
-      'User-Agent': 'antigravity/cli/1.0.13 (aidev_client; os_type=darwin; arch=arm64)',
+      // Cloud Code only returns the Gemini quota group for hub clients at or
+      // above 2.23.0; older identities get the Claude/GPT group alone.
+      'User-Agent': 'antigravity/hub/2.23.0 darwin/arm64',
     }),
   },
 };
@@ -360,9 +362,23 @@ function markProviderStale(state, message) {
   }
 }
 
-function weightFor(provider, account, codexWeights) {
-  if (provider !== 'codex') return 1;
-  return codexWeights.get(account.authIndex) ?? null;
+// Weights describe relative capacity, not usage: a x20 account holds twenty
+// times the allowance of a baseline account. Codex has no usable baseline, so
+// an unmapped Codex account stays excluded; an unmapped Antigravity account is
+// weighted 1 like any other baseline tier.
+function weightFor(provider, account, weights) {
+  if (provider === 'codex') return weights.codex.get(account.authIndex) ?? null;
+  if (provider === 'antigravity') return weights.antigravity.get(account.authIndex) ?? 1;
+  return 1;
+}
+
+function weightMap(source, allowed) {
+  const map = new Map();
+  for (const [key, value] of Object.entries(asRecord(source) ?? {})) {
+    const weight = asNumber(value);
+    if (allowed.includes(weight)) map.set(key.trim(), weight);
+  }
+  return map;
 }
 
 function weightedAverage(entries) {
@@ -379,6 +395,7 @@ export function createQuotaService({
   baseUrl,
   managementKey,
   codexWeights = {},
+  antigravityWeights = {},
   opencodeApiKeys = [],
   intervalMs = 30 * 60 * 1000,
   spacingMs = DEFAULT_SPACING_MS,
@@ -394,11 +411,10 @@ export function createQuotaService({
   const accountsByKey = new Map();
   states.get('opencode').accounts = opencodeAccounts;
   for (const account of opencodeAccounts) accountsByKey.set(account.key, account);
-  const weights = new Map();
-  for (const [key, value] of Object.entries(asRecord(codexWeights) ?? {})) {
-    const weight = asNumber(value);
-    if (weight === 5 || weight === 20) weights.set(key.trim(), weight);
-  }
+  const weights = {
+    codex: weightMap(codexWeights, [5, 20]),
+    antigravity: weightMap(antigravityWeights, [1, 5, 20]),
+  };
 
   let timer = null;
   let started = false;

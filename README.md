@@ -34,6 +34,7 @@ For development, run `npm run dev` to restart the server automatically when its 
 | `CLIPROXYAPI_RESP_URL` | Separate direct `redis://host:port` or `rediss://host:port` usage listener. No HTTP URL or database suffix. |
 | `CLIPROXYAPI_RESP_PASSWORD` | Listener authentication; defaults to the management key. |
 | `CODEX_ACCOUNT_WEIGHTS` | JSON object mapping the exact stable `auth_index` of each Codex account to `5` or `20`. Empty by default; missing weights are explicitly unknown. |
+| `ANTIGRAVITY_ACCOUNT_WEIGHTS` | JSON object mapping the exact stable `auth_index` of an Antigravity account to `1`, `5` (Ultra Lite), or `20` (Ultra). Unlisted accounts are weighted `1`. |
 | `API_KEY_ALIASES` | Optional JSON object mapping each proxy API key to a display alias, for example `{"sk-...":"Desk","sk-...":"Laptop"}`. Adds labels to request rows; not required for filtering. The backend stores only opaque key hashes in SQLite. Aliases must be unique. |
 | `DATA_PATH` | SQLite file, default `./data/dashboard.sqlite`. Use persistent storage. |
 | `HOST`, `PORT` | Default `127.0.0.1:8787`. Bind through your existing access layer. |

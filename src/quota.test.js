@@ -301,6 +301,36 @@ test('reports Antigravity Gemini windows only, or Unknown when unrecognized', as
   assert.match(windows[0].message, /not both identified/i);
 });
 
+test('asks Antigravity as a hub client that receives the Gemini group', async () => {
+  const stub = managementStub({ files: [{ provider: 'antigravity', auth_index: 'ag-1', project_id: 'p' }],
+    quotaFor: () => apiCallEnvelope(antigravityPayload()) });
+  const quota = service({ codexWeights: {}, fetchImpl: stub.fetchImpl });
+  await quota.refresh();
+  const userAgent = stub.calls.bodies[0].header['User-Agent'];
+  const version = Number.parseFloat(/^antigravity\/hub\/(\d+\.\d+)/.exec(userAgent)?.[1]);
+  assert.equal(Number.isFinite(version) && version >= 2.23, true, userAgent);
+});
+
+test('weights Antigravity accounts, and treats unlisted ones as baseline capacity', async () => {
+  const files = ['ag-base', 'ag-lite', 'ag-ultra'].map((auth_index) => ({
+    provider: 'antigravity', auth_index, project_id: 'p',
+  }));
+  const remaining = { 'ag-base': 100, 'ag-lite': 50, 'ag-ultra': 20 };
+  const stub = managementStub({ files, quotaFor: body => {
+    const payload = antigravityPayload();
+    const fraction = remaining[body.auth_index] / 100;
+    for (const bucket of payload.groups[0].buckets) bucket.remainingFraction = fraction;
+    return apiCallEnvelope(payload);
+  } });
+  const quota = service({ fetchImpl: stub.fetchImpl,
+    antigravityWeights: { 'ag-lite': 5, 'ag-ultra': 20 } });
+  await quota.refresh();
+  const fiveHour = quota.snapshot().antigravity.windows.find(w => w.id === 'gemini-five-hour');
+  // Unlisted ag-base defaults to weight 1: (1*100 + 5*50 + 20*20) / 26.
+  assert.equal(fiveHour.remainingPercent, 28.85);
+  assert.equal(fiveHour.observedAccounts, 3);
+});
+
 test('reports Unknown windows before the first refresh', () => {
   const quota = service({ codexWeights: {}, fetchImpl: async () => jsonResponse({ files: [] }) });
   const snapshot = quota.snapshot();
